@@ -1,4 +1,5 @@
-"""Riga di comando: `drdec analyze` per i testi, `drdec decompile` per i binari."""
+"""Riga di comando: `drdec analyze` per i testi, `drdec decompile` per i binari,
+`drdec web` per studiare il front-end di un sito."""
 
 from __future__ import annotations
 
@@ -17,12 +18,20 @@ from drdeconstruct.llm.factory import make_backend
 from drdeconstruct.preprocess.chunker import split_c_functions
 from drdeconstruct.preprocess.ghidra import GhidraExporter
 from drdeconstruct.software.analyzer import SoftwareAnalyzer
+from drdeconstruct.web.analyzer import WebAnalyzer
+from drdeconstruct.web.extract import build_snapshot
+from drdeconstruct.web.fetcher import SiteFetcher
+from drdeconstruct.web.scaffold import write_scaffold
 
 
 def build_orchestrator(settings: Settings) -> Orchestrator:
     llm = make_backend(settings)
     return Orchestrator(
-        {Domain.SOFTWARE: SoftwareAnalyzer(llm), Domain.HARDWARE: HardwareAnalyzer(llm)}
+        {
+            Domain.SOFTWARE: SoftwareAnalyzer(llm),
+            Domain.HARDWARE: HardwareAnalyzer(llm),
+            Domain.WEB: WebAnalyzer(llm),
+        }
     )
 
 
@@ -79,6 +88,23 @@ def _parser() -> argparse.ArgumentParser:
         help="Manda ogni funzione al modello (altrimenti solo export C)",
     )
     _add_engine_args(d)
+
+    w = sub.add_parser(
+        "web",
+        help="Studia il front-end di un sito pubblico e genera uno scheletro da reinterpretare.",
+        description=(
+            "Scarica solo HTML, CSS e JS pubblici dello stesso sito, rispettando robots.txt; "
+            "non aggira login né paywall. Lo scheletro non contiene testi, immagini o marchi "
+            "del sito: è una base per la TUA versione, non una copia da ripubblicare."
+        ),
+    )
+    w.add_argument("url")
+    w.add_argument(
+        "--snapshot-only", action="store_true", help="Solo mappa strutturale, senza modello"
+    )
+    w.add_argument("--scaffold", type=Path, metavar="CARTELLA", help="Scrivi qui lo scheletro")
+    w.add_argument("--max-resources", type=int, default=20, help="Massimo CSS/JS da scaricare")
+    _add_engine_args(w)
     return p
 
 
@@ -143,9 +169,43 @@ def _cmd_decompile(args: argparse.Namespace) -> str:
     )
 
 
+def run_web(url: str, settings: Settings | None, context: str = "", max_resources: int = 20):
+    """Scarica, mappa e (se `settings` c'è) fa spiegare la pagina. Usato da CLI e GUI."""
+    site = SiteFetcher(max_resources=max_resources).fetch(url)
+    snapshot = build_snapshot(
+        site.url,
+        site.html,
+        stylesheets=[r.text for r in site.stylesheets],
+        scripts=[r.text for r in site.scripts],
+        third_party_scripts=site.third_party_scripts,
+        skipped=site.skipped,
+    )
+    if settings is None:
+        return snapshot, None
+    return snapshot, WebAnalyzer(make_backend(settings)).analyze_snapshot(snapshot, context)
+
+
+def _cmd_web(args: argparse.Namespace) -> str:
+    if args.snapshot_only and args.scaffold:
+        raise DrDeconstructError("--scaffold richiede il modello: togli --snapshot-only.")
+    print(f"[*] Raccolgo la struttura di {args.url}…", file=sys.stderr)
+    settings = None if args.snapshot_only else _settings(args)
+    snapshot, analysis = run_web(args.url, settings, args.context, args.max_resources)
+    if analysis is None:
+        return snapshot.model_dump_json(indent=2)
+    if args.scaffold:
+        for path in write_scaffold(analysis, args.scaffold, snapshot.css.breakpoints_px):
+            print(f"[*] Scheletro: {path}", file=sys.stderr)
+    return json.dumps(
+        {"snapshot": snapshot.model_dump(), "analysis": analysis.model_dump()},
+        indent=2,
+        ensure_ascii=False,
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
-    commands = {"analyze": _cmd_analyze, "decompile": _cmd_decompile}
+    commands = {"analyze": _cmd_analyze, "decompile": _cmd_decompile, "web": _cmd_web}
     try:
         output = commands[args.command](args)
     except (DrDeconstructError, OSError) as exc:

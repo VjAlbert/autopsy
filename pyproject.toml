@@ -5,11 +5,13 @@ build-backend = "hatchling.build"
 [project]
 name = "drdeconstruct"
 version = "0.1.0"
-description = "Reverse engineering assistito da AI: pseudocodice, firmware, bus seriali."
+description = "Reverse engineering assistito da AI: pseudocodice, firmware, bus seriali, front-end web."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
-keywords = ["reverse-engineering", "firmware", "ghidra", "disassembly", "claude", "ai"]
+keywords = [
+    "reverse-engineering", "firmware", "ghidra", "disassembly", "frontend", "claude", "ai",
+]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",

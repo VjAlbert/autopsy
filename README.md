@@ -12,6 +12,7 @@ testuale e lo spiega con un modello linguistico.
 |---|---|---|
 | Software | Pseudocodice C (Ghidra/IDA) o assembly | Scopo della funzione, flusso di controllo, variabili rinominate, codice riscritto, note sull'algoritmo |
 | Hardware | Estratti esadecimali di dump, mappe di registri, log UART/SPI/I2C/CAN | Formato riconosciuto, campi decodificati, strutture, ipotesi su pin e registri |
+| Web | URL di una pagina pubblica o file HTML salvato | Sezioni, componenti, design system, librerie usate, piano di ricostruzione, scheletro HTML/CSS da riempire |
 
 ### Dispositivi collegati
 
@@ -23,6 +24,27 @@ dell'originale obbligatorio, conferma esplicita dell'operatore e rilettura di
 verifica. Richiede l'extra `hardware`.
 
 Con `drdec decompile` dai direttamente un file binario: DrDeconstruct avvia Ghidra in modalità headless (gratuito, serve Java 21 e `GHIDRA_INSTALL_DIR`), ne estrae lo pseudocodice e, con `--analyze`, lo manda al modello.
+
+### Siti web: studio e reinterpretazione, non clonazione
+
+`drdec web URL` scarica solo ciò che il browser riceve già (HTML, CSS e
+JavaScript pubblici dello stesso sito), ne ricava una mappa strutturale e la fa
+spiegare al modello. Con `--scaffold CARTELLA` scrive uno scheletro
+`index.html` + `styles.css` + `script.js` + `NOTE.md` con testi e immagini
+segnaposto e una palette neutra, da riempire con i tuoi contenuti.
+
+Limiti voluti:
+
+- rispetta `robots.txt` e il suo `Crawl-delay`; non aggira login, paywall o
+  misure anti-scraping (401, 403 e 429 fermano la raccolta);
+- non scarica immagini, font o video, né script di terzi (vengono solo elencati);
+- testi, immagini, loghi e marchi del sito non arrivano né al modello né allo
+  scheletro: dei testi restano solo i titoli delle sezioni, per capirne l'ordine.
+
+Anche l'aspetto grafico di un sito può essere tutelato (diritto d'autore,
+marchi, concorrenza sleale): lo scheletro è un punto di partenza da
+reinterpretare, non una copia da ripubblicare. Prima di analizzare un sito
+controlla anche i suoi termini d'uso: alcuni vietano la raccolta automatica.
 
 L'orchestratore usa il tipo dichiarato dall'operatore (`--kind`). Il
 riconoscimento automatico è solo un ripiego: se è incerto, il programma si
@@ -64,6 +86,13 @@ drdec analyze export_ghidra.c --kind pseudocode_c --split -o risultato.json
 
 # Log di un bus seriale con il motore locale
 drdec analyze uart.log --kind bus_log --backend ollama
+
+# Struttura di un sito, senza modello (gratis, nessun limite consumato)
+drdec web https://esempio.it --snapshot-only
+# Analisi completa e scheletro da riempire
+drdec web https://esempio.it --scaffold mio-sito/ -o analisi.json
+# Una pagina già salvata dal browser
+drdec analyze pagina.html --kind web_page
 ```
 
 Variabili d'ambiente: `DRDEC_BACKEND`, `DRDEC_MODEL`, `DRDEC_OLLAMA_HOST`.
@@ -76,7 +105,8 @@ drdec-gui
 ```
 
 Finestra con tema scuro: una scheda per analizzare Software/Hardware (incolli o
-apri un file e ottieni il risultato) e una per i dispositivi collegati.
+apri un file e ottieni il risultato), una per decompilare binari, una per
+studiare un sito web e salvarne lo scheletro, e una per i dispositivi collegati.
 
 ## Eseguibile per Windows 10/11
 
@@ -94,6 +124,7 @@ src/drdeconstruct/
 ├─ llm/                 motori: claude_code, ollama, anthropic_api
 ├─ software/            schemi, prompt, analizzatore (pseudocodice/ASM)
 ├─ hardware/            schemi, prompt, analizzatore (dump, registri, bus)
+├─ web/                 raccolta rispettosa, mappa strutturale, analisi, scheletro
 ├─ acquisition/         USB, seriale, Bluetooth, flash (con controlli di sicurezza)
 ├─ gui/                 interfaccia grafica PySide6
 └─ preprocess/          Ghidra headless (binario -> pseudocodice) e divisione in funzioni

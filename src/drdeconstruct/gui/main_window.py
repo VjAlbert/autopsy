@@ -1,4 +1,4 @@
-"""Finestra principale di DrDeconstruct: schede Software, Hardware, Dispositivi."""
+"""Finestra principale di DrDeconstruct: schede Software, Hardware, Sito web, Dispositivi."""
 
 from __future__ import annotations
 
@@ -41,6 +41,7 @@ class MainWindow(QMainWindow):
         tabs = QTabWidget()
         tabs.addTab(self._build_analysis_tab(), "Software / Hardware")
         tabs.addTab(self._build_decompile_tab(), "Decompila binario")
+        tabs.addTab(self._build_web_tab(), "Sito web")
         tabs.addTab(self._build_devices_tab(), "Dispositivi")
         self.setCentralWidget(tabs)
         self.statusBar().showMessage("Pronto")
@@ -191,6 +192,87 @@ class MainWindow(QMainWindow):
             )
 
         self._start(job, on_done=self.decompile_view.setPlainText, busy="Ghidra al lavoro…")
+
+    # --- Scheda sito web --------------------------------------------------
+    def _build_web_tab(self) -> QWidget:
+        w = QWidget()
+        layout = QVBoxLayout(w)
+        layout.addWidget(self._heading("Studia il front-end di un sito"))
+        layout.addWidget(
+            self._hint(
+                "Scarica solo HTML, CSS e JavaScript pubblici, rispettando robots.txt, e "
+                "spiega struttura, componenti, stili e librerie. Lo scheletro generato non "
+                "contiene testi, immagini o marchi del sito: è la base per la tua versione, "
+                "non una copia da ripubblicare. Login e paywall non vengono aggirati."
+            )
+        )
+
+        row = QHBoxLayout()
+        self.url_edit = QLineEdit()
+        self.url_edit.setPlaceholderText("https://esempio.it")
+        self.web_struct_only = QPushButton("Solo struttura")
+        self.web_struct_only.setCheckable(True)
+        self.web_btn = QPushButton("Analizza sito")
+        self.web_btn.clicked.connect(self._run_web)
+        row.addWidget(self.url_edit, 1)
+        row.addWidget(self.web_struct_only)
+        row.addWidget(self.web_btn)
+        layout.addLayout(row)
+
+        self.web_view = QTextEdit()
+        self.web_view.setReadOnly(True)
+        layout.addWidget(self.web_view, 1)
+
+        self.scaffold_btn = QPushButton("Salva scheletro…")
+        self.scaffold_btn.setEnabled(False)
+        self.scaffold_btn.clicked.connect(self._save_scaffold)
+        layout.addWidget(self.scaffold_btn)
+        self._web_result = None
+        return w
+
+    def _run_web(self) -> None:
+        from dataclasses import replace
+
+        from drdeconstruct.cli import run_web
+
+        url = self.url_edit.text().strip()
+        if not url:
+            QMessageBox.warning(self, "Manca l'indirizzo", "Scrivi l'URL della pagina.")
+            return
+        if "://" not in url:
+            url = "https://" + url
+        settings = (
+            None
+            if self.web_struct_only.isChecked()
+            else replace(self.settings, backend=self.backend_box.currentText())
+        )
+        self.scaffold_btn.setEnabled(False)
+        self._start(lambda: run_web(url, settings), on_done=self._show_web, busy="Studio il sito…")
+
+    def _show_web(self, result) -> None:
+        snapshot, analysis = result
+        self._web_result = result
+        payload = {"snapshot": snapshot.model_dump()}
+        if analysis is not None:
+            payload = {"analysis": analysis.model_dump(), **payload}
+        self.web_view.setPlainText(json.dumps(payload, indent=2, ensure_ascii=False))
+        self.scaffold_btn.setEnabled(analysis is not None)
+
+    def _save_scaffold(self) -> None:
+        from drdeconstruct.web.scaffold import write_scaffold
+
+        if not self._web_result or self._web_result[1] is None:
+            return
+        folder = QFileDialog.getExistingDirectory(self, "Cartella (vuota) per lo scheletro")
+        if not folder:
+            return
+        snapshot, analysis = self._web_result
+        try:
+            paths = write_scaffold(analysis, Path(folder), snapshot.css.breakpoints_px)
+        except OSError as exc:
+            QMessageBox.critical(self, "Errore", str(exc))
+            return
+        self.statusBar().showMessage(f"Scheletro salvato: {len(paths)} file in {folder}")
 
     # --- Scheda dispositivi ----------------------------------------------
     def _build_devices_tab(self) -> QWidget:
