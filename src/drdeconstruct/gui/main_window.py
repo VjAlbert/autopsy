@@ -72,6 +72,7 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self._build_devices_tab(), "Dispositivi")
         self.smarthome_tab = SmartHomeTab(self._start, self._current_settings)
         self.tabs.addTab(self.smarthome_tab, "Casa smart")
+        self.tabs.addTab(self._build_quality_tab(), "Verifica qualità")
 
         central = QWidget()
         outer = QVBoxLayout(central)
@@ -124,7 +125,8 @@ class MainWindow(QMainWindow):
     def _run_analysis(self) -> None:
         from dataclasses import replace
 
-        from drdeconstruct.cli import build_orchestrator
+        from drdeconstruct.cli import analyze_functions, build_engine
+        from drdeconstruct.preprocess.chunker import split_c_functions
 
         content = self.input_edit.toPlainText().strip()
         if not content:
@@ -138,12 +140,26 @@ class MainWindow(QMainWindow):
             kind=kind,
             arch=self.arch_edit.text().strip() or None,
         )
+        # Più funzioni C incollate insieme: una alla volta, con nomi coerenti tra loro.
+        chunks = split_c_functions(content) if kind is ArtifactKind.PSEUDOCODE_C else []
+
+        def job():
+            llm, orch = build_engine(settings)
+            if len(chunks) > 1:
+                return analyze_functions(orch, req, [(c.name, c.code) for c in chunks], llm=llm)
+            return orch.run(req).model_dump()
+
+        busy = (
+            f"Analisi di {len(chunks)} funzioni, con nomi coerenti tra loro…"
+            if len(chunks) > 1
+            else "Analisi in corso…"
+        )
         self._start(
-            lambda: build_orchestrator(settings).run(req).model_dump(),
+            job,
             on_done=lambda r: self.output_view.setPlainText(
                 json.dumps(r, indent=2, ensure_ascii=False)
             ),
-            busy="Analisi in corso…",
+            busy=busy,
         )
 
     # --- Scheda decompilazione -------------------------------------------
@@ -209,13 +225,14 @@ class MainWindow(QMainWindow):
             program = GhidraExporter().export(path, processor=processor)
             if not analyze:
                 return program.as_c_source()
-            from drdeconstruct.cli import analyze_functions, build_orchestrator
+            from drdeconstruct.cli import analyze_functions, build_engine
             from drdeconstruct.core.types import AnalysisRequest
 
             base = AnalysisRequest(content="", kind=ArtifactKind.PSEUDOCODE_C, arch=program.arch)
             funcs = [(f"{f.name}@{f.entry}", f.code) for f in program.functions]
+            llm, orch = build_engine(settings)
             return json.dumps(
-                analyze_functions(build_orchestrator(settings), base, funcs),
+                analyze_functions(orch, base, funcs, llm=llm),
                 indent=2,
                 ensure_ascii=False,
             )
@@ -461,6 +478,60 @@ class MainWindow(QMainWindow):
             on_done=lambda devs: self.device_list.addItems([str(d) for d in devs] or ["(nessuno)"]),
             busy=busy,
         )
+
+    # --- Scheda verifica qualità ------------------------------------------
+    def _build_quality_tab(self) -> QWidget:
+        w = QWidget()
+        layout = QVBoxLayout(w)
+        layout.addWidget(self._heading("Quanto sono buoni i nomi proposti?"))
+        layout.addWidget(
+            self._hint(
+                "Fa analizzare al modello alcune funzioni di esempio di cui conosciamo i nomi "
+                "veri (CRC32, strlen, checksum, driver UART…) e conta quanti nomi indovina. "
+                "Utile per scegliere il motore o il modello migliore. Usa il modello davvero: "
+                "consuma un po' del tuo abbonamento o credito e richiede qualche minuto."
+            )
+        )
+        row = QHBoxLayout()
+        self.quality_backend = QComboBox()
+        self.quality_backend.addItems(BACKENDS)
+        self.quality_backend.setCurrentText(self.settings.backend)
+        self.quality_global = QCheckBox("Nomi coerenti tra funzioni (consigliato)")
+        self.quality_global.setChecked(True)
+        row.addWidget(QLabel("Motore:"))
+        row.addWidget(self.quality_backend)
+        row.addWidget(self.quality_global)
+        row.addStretch()
+        layout.addLayout(row)
+
+        self.quality_btn = QPushButton("Avvia verifica")
+        self.quality_btn.clicked.connect(self._run_quality)
+        layout.addWidget(self.quality_btn)
+
+        self.quality_view = QPlainTextEdit()
+        self.quality_view.setReadOnly(True)
+        layout.addWidget(self.quality_view, 1)
+        return w
+
+    def _run_quality(self) -> None:
+        from dataclasses import replace
+
+        from drdeconstruct.cli import analyze_functions, build_engine
+        from drdeconstruct.evaluation import load_cases, report, run_case
+
+        settings = replace(self.settings, backend=self.quality_backend.currentText())
+        use_global = self.quality_global.isChecked()
+
+        def job():
+            llm, orch = build_engine(settings)
+            names_llm = llm if use_global else None
+            results = [
+                run_case(case, lambda req, fns: analyze_functions(orch, req, fns, llm=names_llm))
+                for case in load_cases()
+            ]
+            return report(results)
+
+        self._start(job, on_done=self.quality_view.setPlainText, busy="Verifica in corso…")
 
     # --- Infrastruttura ---------------------------------------------------
     def _backend(self) -> str:
