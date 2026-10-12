@@ -76,8 +76,16 @@ class MainWindow(QMainWindow):
         load_btn.clicked.connect(self._load_file)
         self.run_btn = QPushButton("Analizza")
         self.run_btn.clicked.connect(self._run_analysis)
+        self.scaffold_lang = self._lang_box()
+        self.scaffold_text_btn = QPushButton("Scheletro di codice…")
+        self.scaffold_text_btn.setToolTip(
+            "Riscrive le funzioni come scheletro da completare (firme, tipi, flusso, TODO)."
+        )
+        self.scaffold_text_btn.clicked.connect(self._scaffold_from_text)
         btn_row.addWidget(load_btn)
         btn_row.addStretch()
+        btn_row.addWidget(self.scaffold_lang)
+        btn_row.addWidget(self.scaffold_text_btn)
         btn_row.addWidget(self.run_btn)
         layout.addLayout(btn_row)
 
@@ -116,6 +124,89 @@ class MainWindow(QMainWindow):
             busy="Analisi in corso…",
         )
 
+    # --- Scheletri di codice ----------------------------------------------
+    @staticmethod
+    def _lang_box() -> QComboBox:
+        from drdeconstruct.software.scaffold import DEFAULT_LANGUAGE, LANGUAGES
+
+        box = QComboBox()
+        box.addItems(LANGUAGES)
+        box.setCurrentText(DEFAULT_LANGUAGE.value)
+        box.setToolTip("Linguaggio dello scheletro")
+        return box
+
+    def _scaffold_folder(self) -> Path | None:
+        folder = QFileDialog.getExistingDirectory(self, "Cartella (vuota) per lo scheletro")
+        return Path(folder) if folder else None
+
+    def _show_scaffold(self, view: QTextEdit, result) -> None:
+        _, paths = result
+        notes = next((p for p in paths if p.name == "NOTE.md"), None)
+        if notes:
+            view.setPlainText(notes.read_text(encoding="utf-8"))
+        self.statusBar().showMessage(f"Scheletro salvato: {len(paths)} file in {paths[0].parent}")
+
+    def _scaffold_from_text(self) -> None:
+        from dataclasses import replace
+
+        from drdeconstruct.cli import run_scaffold
+        from drdeconstruct.preprocess.chunker import split_c_functions
+        from drdeconstruct.software.scaffold import SourceFunction
+
+        content = self.input_edit.toPlainText().strip()
+        kind = ArtifactKind(self.kind_box.currentText())
+        if not content or kind not in (ArtifactKind.PSEUDOCODE_C, ArtifactKind.ASSEMBLY):
+            QMessageBox.warning(
+                self, "Input non adatto", "Incolla pseudocodice C o assembly e scegline il tipo."
+            )
+            return
+        folder = self._scaffold_folder()
+        if folder is None:
+            return
+        settings = replace(self.settings, backend=self.backend_box.currentText())
+        chunks = split_c_functions(content) if kind is ArtifactKind.PSEUDOCODE_C else []
+        functions = [SourceFunction(c.name, c.code) for c in chunks] or [
+            SourceFunction("funzione", content)
+        ]
+        lang = self.scaffold_lang.currentText()
+        arch = self.arch_edit.text().strip() or None
+        self._start(
+            lambda: run_scaffold(settings, functions, folder, lang, arch, source="scheletro"),
+            on_done=lambda r: self._show_scaffold(self.output_view, r),
+            busy="Genero lo scheletro…",
+        )
+
+    def _scaffold_from_binary(self) -> None:
+        from dataclasses import replace
+
+        from drdeconstruct.cli import run_scaffold
+        from drdeconstruct.preprocess.ghidra import GhidraExporter
+        from drdeconstruct.software.scaffold import SourceFunction
+
+        path = self.binary_edit.text().strip()
+        if not path:
+            QMessageBox.warning(self, "Manca il file", "Scegli un file binario.")
+            return
+        folder = self._scaffold_folder()
+        if folder is None:
+            return
+        settings = replace(self.settings, backend=self.backend_box.currentText())
+        processor = self.proc_edit.text().strip() or None
+        lang = self.decompile_lang.currentText()
+
+        def job():
+            program = GhidraExporter().export(path, processor=processor)
+            functions = [SourceFunction(f.name, f.code, f.entry) for f in program.functions]
+            return run_scaffold(
+                settings, functions, folder, lang, program.arch, source=program.program
+            )
+
+        self._start(
+            job,
+            on_done=lambda r: self._show_scaffold(self.decompile_view, r),
+            busy="Ghidra e il modello al lavoro…",
+        )
+
     # --- Scheda decompilazione -------------------------------------------
     def _build_decompile_tab(self) -> QWidget:
         w = QWidget()
@@ -146,6 +237,11 @@ class MainWindow(QMainWindow):
         opts.addWidget(QLabel("Processore:"))
         opts.addWidget(self.proc_edit)
         opts.addWidget(self.analyze_chk)
+        self.decompile_lang = self._lang_box()
+        scaffold_btn = QPushButton("Genera scheletro…")
+        scaffold_btn.clicked.connect(self._scaffold_from_binary)
+        opts.addWidget(self.decompile_lang)
+        opts.addWidget(scaffold_btn)
         layout.addLayout(opts)
 
         self.decompile_btn = QPushButton("Decompila")
