@@ -1,12 +1,22 @@
 name: Release
 
 # Pushing a tag like v0.2.0 builds the Windows installer and the portable exe and
-# publishes them on the GitHub Releases page. "Run workflow" builds them as a test
-# (downloadable from the run's artifacts) without publishing anything.
+# publishes them on the GitHub Releases page. "Run workflow" does the same from the
+# browser: type a version (e.g. 0.2.0) and the tag v0.2.0 is created on the chosen
+# branch; leave it empty for a test build (downloadable from the run's artifacts only).
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish, e.g. 0.2.0 (empty = test build, nothing published)"
+        required: false
+        default: ""
+
+env:
+  # The version of this build: from the tag, from the "Run workflow" box, or a test build.
+  VERSION: ${{ github.ref_type == 'tag' && github.ref_name || inputs.version }}
 
 permissions:
   contents: write
@@ -15,6 +25,13 @@ jobs:
   windows:
     runs-on: windows-latest
     steps:
+      - name: Version number without the leading v
+        if: env.VERSION != ''
+        shell: pwsh
+        run: |
+          $v = "${{ env.VERSION }}".TrimStart("v")
+          if ($v -notmatch '^\d+\.\d+\.\d+$') { Write-Error "Version must look like 0.2.0, got '$v'"; exit 1 }
+          "VERSION_NUMBER=$v" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
@@ -34,7 +51,7 @@ jobs:
       - name: Build the installer
         shell: pwsh
         run: |
-          $version = if ("${{ github.ref_type }}" -eq "tag") { "${{ github.ref_name }}".TrimStart("v") } else { "0.0.0-test" }
+          $version = if ($env:VERSION) { $env:VERSION.TrimStart("v") } else { "0.0.0-test" }
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=$version" packaging\installer.iss
           Rename-Item dist\DrDeconstruct.exe DrDeconstruct-portable.exe
       - name: Checksums
@@ -52,8 +69,13 @@ jobs:
             dist/DrDeconstruct-portable.exe
             dist/SHA256SUMS.txt
       - uses: softprops/action-gh-release@v2
-        if: github.ref_type == 'tag'
+        if: env.VERSION != ''
         with:
+          # Creates the tag on the built commit when the release starts from "Run workflow".
+          tag_name: v${{ env.VERSION_NUMBER }}
+          target_commitish: ${{ github.sha }}
+          name: DrDeconstruct ${{ env.VERSION_NUMBER }}
+          make_latest: true
           files: |
             dist/DrDeconstruct-Setup-*.exe
             dist/DrDeconstruct-portable.exe
