@@ -199,6 +199,8 @@ def _parser() -> argparse.ArgumentParser:
         "cases", type=Path, nargs="?", help="Cartella dei casi (default: quelli inclusi)"
     )
     _add_engine_args(e)
+    doc = sub.add_parser("doctor", help="Controlla cosa è pronto: motore IA, Ghidra, flashrom.")
+    doc.add_argument("--backend", choices=BACKENDS, help="Motore da controllare")
     _add_home_parser(sub)
     return p
 
@@ -492,6 +494,15 @@ def _cmd_home(args: argparse.Namespace) -> str:
     return json.dumps(result, indent=2, ensure_ascii=False)
 
 
+def _cmd_doctor(args) -> str:
+    from drdeconstruct.doctor import format_checks, run_checks
+
+    settings = Settings.from_env()
+    if args.backend:
+        settings = replace(settings, backend=args.backend)
+    return format_checks(run_checks(settings))
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     commands = {
@@ -501,6 +512,7 @@ def main(argv: list[str] | None = None) -> int:
         "web": _cmd_web,
         "eval": _cmd_eval,
         "home": _cmd_home,
+        "doctor": _cmd_doctor,
     }
     try:
         output = commands[args.command](args)

@@ -1,12 +1,13 @@
-## Cosa cambia
+## What changes
 
-Prima:
+Before:
 
-Dopo:
+After:
 
-## Come
+## How
 
-## Verifiche
-- [ ] `ruff check .` pulito
-- [ ] `pytest` verde
-- [ ] Aggiunti test per il nuovo comportamento
+## Checks
+- [ ] `ruff check .` clean
+- [ ] `pytest` green
+- [ ] Added tests for the new behavior
+- [ ] New GUI features are step-by-step and usable without the command line

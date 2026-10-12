@@ -45,11 +45,147 @@ def test_main_window_builds(app):
 
     win = MainWindow(Settings(backend="ollama"))
     assert win.windowTitle() == "DrDeconstruct"
-    assert win.tabs.count() == 7
+    # Inizio + 7 moduli, ognuno con la sua voce nella barra laterale
+    assert win.pages.count() == 8 and win.nav.count() == 8
+    assert win.current_page() is win.home_page
     assert win.backend_box.currentData() == "ollama"
-    assert win.binary_edit.text() == ""
-    assert not win.scaffold_btn.isEnabled()
-    assert win.mirror_btn.isEnabled()
+    assert win.decompile_page.binary_edit.text() == ""
+    assert not win.web_page.scaffold_btn.isEnabled()
+    assert win.web_page.mirror_btn.isEnabled()
+    win.close()
+
+
+def test_home_tiles_open_every_module(app):
+    from drdeconstruct.config import Settings
+    from drdeconstruct.gui.main_window import MainWindow
+
+    win = MainWindow(Settings(backend="ollama"))
+    for key, tile in win.home_page.tiles.items():
+        tile.click()
+        assert win.current_page() is win.page_by_key[key]
+    win.close()
+
+
+def test_home_shows_system_checks(app):
+    from drdeconstruct.config import Settings
+    from drdeconstruct.doctor import Check
+    from drdeconstruct.gui.main_window import MainWindow
+
+    win = MainWindow(Settings(backend="claude-code"))
+    home = win.home_page
+    home.set_checks([Check("claude-code", "Claude Code", False, "Non trovato.", fix="Installa.")])
+    assert home.banner.kind == "warning" and "Non trovato" in home.banner.text
+    assert not home.install_btn.isHidden() and home.login_btn.isHidden()
+    home.set_checks([Check("claude-code", "Claude Code", True, "Installato.")])
+    assert home.banner.kind == "success"
+    assert home.install_btn.isHidden() and not home.login_btn.isHidden()
+    win.close()
+
+
+def test_engine_choice_is_shared_by_all_pages(app):
+    from drdeconstruct.config import Settings
+    from drdeconstruct.gui.main_window import MainWindow
+
+    win = MainWindow(Settings(backend="ollama"))
+    win.backend_box.setCurrentIndex(win.backend_box.findData("api"))
+    assert win.scaffold_tab._settings().backend == "api"
+    assert win.analysis_page._settings().backend == "api"
+    assert win.engine_dot.text().startswith("●")
+    win.close()
+
+
+def test_errors_show_in_the_page_that_started_the_job(app):
+    from drdeconstruct.config import Settings
+    from drdeconstruct.core.errors import BackendError
+    from drdeconstruct.gui.main_window import MainWindow
+
+    def boom():
+        raise BackendError("Ollama non raggiungibile")
+
+    win = MainWindow(Settings(backend="ollama"))
+    page = win.analysis_page
+    page.run(boom, on_done=lambda r: None, busy="Analisi…")
+    assert page.banner.kind == "busy" and not page.run_btn.isEnabled()
+    win._task.wait(5000)
+    app.processEvents()
+    assert page.banner.kind == "error" and "Ollama" in page.banner.text
+    assert page.run_btn.isEnabled()
+    win.close()
+
+
+def test_missing_input_is_explained_inline(app):
+    from drdeconstruct.config import Settings
+    from drdeconstruct.gui.main_window import MainWindow
+
+    win = MainWindow(Settings(backend="ollama"))
+    win.analysis_page._run_analysis()
+    assert win._task is None and win.analysis_page.banner.kind == "warning"
+    win.decompile_page._run_decompile()
+    assert "Scegli file" in win.decompile_page.banner.text
+    win.web_page._run_web()
+    assert "indirizzo" in win.web_page.banner.text
+    win.close()
+
+
+def test_sample_and_serial_log_flow_into_analysis(app):
+    from drdeconstruct.config import Settings
+    from drdeconstruct.gui.main_window import MainWindow
+
+    win = MainWindow(Settings(backend="ollama"))
+    page = win.analysis_page
+    page.kind_box.setCurrentIndex(page.kind_box.findData("assembly"))
+    page._load_sample()
+    assert "push ebp" in page.input_edit.toPlainText()
+
+    win.devices_page.show_log("U-Boot 2016.07\nStarting kernel ...")
+    assert win.devices_page.explain_btn.isEnabled()
+    win.devices_page.explain_btn.click()
+    assert win.current_page() is page
+    assert page.kind().value == "bus_log" and "U-Boot" in page.input_edit.toPlainText()
+    win.close()
+
+
+def test_serial_ports_fill_the_capture_step(app):
+    from drdeconstruct.acquisition.models import DeviceInfo, LinkKind
+    from drdeconstruct.config import Settings
+    from drdeconstruct.gui.main_window import MainWindow
+
+    win = MainWindow(Settings(backend="ollama"))
+    dev = win.devices_page
+    dev.show_devices([DeviceInfo(LinkKind.SERIAL, "COM7", "USB-SERIAL CH340")])
+    assert dev.port_box.currentText() == "COM7" and dev.device_list.count() == 1
+    win.close()
+
+
+def test_ghidra_folder_picked_in_gui(app, monkeypatch, tmp_path):
+    from drdeconstruct.config import Settings
+    from drdeconstruct.gui.main_window import MainWindow
+
+    monkeypatch.delenv("GHIDRA_INSTALL_DIR", raising=False)
+    win = MainWindow(Settings(backend="ollama"))
+    page = win.decompile_page
+    assert page.ghidra_status.text().startswith("✗")
+    support = tmp_path / "support"
+    support.mkdir()
+    (support / "analyzeHeadless").write_text("")
+    (support / "analyzeHeadless.bat").write_text("")
+    monkeypatch.setenv("JAVA_HOME", str(tmp_path))
+    page.set_ghidra_folder(str(tmp_path))
+    assert page.ghidra_status.text().startswith("✓")
+    win.close()
+
+
+def test_processor_choice(app):
+    from drdeconstruct.config import Settings
+    from drdeconstruct.gui.main_window import MainWindow
+
+    win = MainWindow(Settings(backend="ollama"))
+    page = win.decompile_page
+    assert page.processor() is None
+    page.proc_box.setCurrentIndex(page.proc_box.findData("MIPS:LE:32:default"))
+    assert page.processor() == "MIPS:LE:32:default"
+    page.proc_box.setEditText("ARM:BE:32:v8 scritto a mano")
+    assert page.processor() == "ARM:BE:32:v8"
     win.close()
 
 
@@ -61,14 +197,15 @@ def test_web_tab_shows_readable_report(app, monkeypatch, tmp_path):
     from tests.test_web import PAGE, WEB_PAYLOAD
 
     win = MainWindow(Settings(backend="ollama"))
+    page = win.web_page
     snap = build_snapshot("https://rossi.test/", PAGE)
-    win._show_web((snap, WebAnalysis.model_validate(WEB_PAYLOAD)))
-    text = win.web_view.toPlainText()
+    page.show_web((snap, WebAnalysis.model_validate(WEB_PAYLOAD)))
+    text = page.web_view.toPlainText()
     assert "Griglia schede" in text and '"snapshot"' not in text
-    assert win.scaffold_btn.isEnabled() and win.save_json_btn.isEnabled()
+    assert page.scaffold_btn.isEnabled() and page.save_json_btn.isEnabled()
 
-    win._show_web((snap, None))
-    assert not win.scaffold_btn.isEnabled()
+    page.show_web((snap, None))
+    assert not page.scaffold_btn.isEnabled()
     win.close()
 
 
@@ -81,12 +218,17 @@ def test_gui_analyzes_several_functions_with_shared_names(app, monkeypatch):
     llm = SchemaLLM({"FUN_80001080": ("uart_putc", "high")})
     monkeypatch.setattr(cli, "make_backend", lambda settings: llm)
     win = MainWindow(Settings(backend="ollama"))
-    win.kind_box.setCurrentText("pseudocode_c")
-    win.input_edit.setPlainText(PROGRAM)
-    win._run_analysis()
+    page = win.analysis_page
+    page.kind_box.setCurrentIndex(page.kind_box.findData("pseudocode_c"))
+    page.input_edit.setPlainText(PROGRAM)
+    page._run_analysis()
     win._task.wait(5000)
     app.processEvents()
-    assert '"uart_putc"' in win.output_view.toPlainText()
+    text = page.output_view.toPlainText()
+    # risultato leggibile, non JSON
+    assert "uart_putc" in text and "Nomi comuni a tutto il programma" in text
+    assert '"symbol_map"' not in text
+    assert page.banner.kind == "success" and page.save_md_btn.isEnabled()
     win.close()
 
 

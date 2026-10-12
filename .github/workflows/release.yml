@@ -1,14 +1,18 @@
 name: Release
 
+# Pushing a tag like v0.2.0 builds the Windows installer and the portable exe and
+# publishes them on the GitHub Releases page. "Run workflow" builds them as a test
+# (downloadable from the run's artifacts) without publishing anything.
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  windows-exe:
+  windows:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -17,7 +21,50 @@ jobs:
           python-version: "3.12"
       - run: pip install -e ".[full]" pyinstaller
       - run: pyinstaller packaging/drdeconstruct.spec
-      - uses: softprops/action-gh-release@v2
+      - name: Smoke test the exe (starts and exits)
+        shell: pwsh
+        run: |
+          $env:QT_QPA_PLATFORM = "offscreen"
+          $p = Start-Process dist\DrDeconstruct.exe -PassThru
+          Start-Sleep -Seconds 12
+          if ($p.HasExited) { Write-Error "DrDeconstruct.exe exited early with code $($p.ExitCode)"; exit 1 }
+          Stop-Process $p
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
+      - name: Build the installer
+        shell: pwsh
+        run: |
+          $version = if ("${{ github.ref_type }}" -eq "tag") { "${{ github.ref_name }}".TrimStart("v") } else { "0.0.0-test" }
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=$version" packaging\installer.iss
+          Rename-Item dist\DrDeconstruct.exe DrDeconstruct-portable.exe
+      - name: Checksums
+        shell: pwsh
+        run: |
+          Get-ChildItem dist\*.exe | ForEach-Object {
+            "$((Get-FileHash $_ -Algorithm SHA256).Hash.ToLower())  $($_.Name)"
+          } | Out-File -Encoding ascii dist\SHA256SUMS.txt
+          Get-Content dist\SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
         with:
-          files: dist/DrDeconstruct.exe
+          name: windows-builds
+          path: |
+            dist/DrDeconstruct-Setup-*.exe
+            dist/DrDeconstruct-portable.exe
+            dist/SHA256SUMS.txt
+      - uses: softprops/action-gh-release@v2
+        if: github.ref_type == 'tag'
+        with:
+          files: |
+            dist/DrDeconstruct-Setup-*.exe
+            dist/DrDeconstruct-portable.exe
+            dist/SHA256SUMS.txt
           generate_release_notes: true
+          body: |
+            ## Download for Windows
+
+            - **`DrDeconstruct-Setup-*.exe`**: the installer (recommended). Double-click, follow the wizard.
+            - **`DrDeconstruct-portable.exe`**: a single file, no installation. Run it from anywhere.
+
+            Windows SmartScreen may say "Windows protected your PC" because the app is not code-signed yet.
+            Click **More info** then **Run anyway**. You can verify the download against `SHA256SUMS.txt`.
+            See the [README](https://github.com/VjAlbert/autopsy#download-for-windows) for step-by-step screenshots-free instructions.

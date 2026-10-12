@@ -1,260 +1,230 @@
-# Autopsy (DrDeconstruct)
+<div align="center">
 
-![CI](https://github.com/VjAlbert/autopsy/actions/workflows/ci.yml/badge.svg) ![Python](https://img.shields.io/badge/python-3.10%2B-blue) ![License](https://img.shields.io/badge/license-MIT-green)
+<img src="docs/logo.png" alt="DrDeconstruct logo" width="120">
 
-Piattaforma assistita da AI per il reverse engineering, software e hardware.
-DrDeconstruct non sostituisce Ghidra, IDA o binwalk: prende il loro output
-testuale e lo spiega con un modello linguistico.
-
-## Moduli
-
-| Modulo | Input | Output |
-|---|---|---|
-| Software | Pseudocodice C (Ghidra/IDA) o assembly | Scopo della funzione, flusso di controllo, variabili rinominate, codice riscritto, note sull'algoritmo |
-| Hardware | Estratti esadecimali di dump, mappe di registri, log UART/SPI/I2C/CAN | Formato riconosciuto, campi decodificati, strutture, ipotesi su pin e registri |
-| Web | URL di una pagina pubblica o file HTML salvato | Sezioni, componenti, design system, librerie usate, piano di ricostruzione, scheletro HTML/CSS da riempire |
-
-### Dispositivi collegati
-
-Il modulo `acquisition` elenca i dispositivi USB e le porte seriali, scansiona i
-dispositivi Bluetooth LE vicini, cattura il log di avvio via seriale (UART) e,
-con un programmatore e `flashrom`, fa il backup e l'aggiornamento della memoria
-flash. Ogni scrittura passa dai controlli di `acquisition/safety.py`: backup
-dell'originale obbligatorio, conferma esplicita dell'operatore e rilettura di
-verifica. Richiede l'extra `hardware`.
-
-### Casa smart: Xiaomi, Aqara, Tapo
-
-Il modulo `smarthome` cerca i tuoi dispositivi e spiega come collegarti a
-ognuno. Ogni ecosistema ha un canale e un'autenticazione diversi, quindi senza
-token o credenziali il programma scopre e identifica, non controlla.
-
-| Canale | Cosa vede | Cosa serve per leggerne lo stato |
-|---|---|---|
-| Bluetooth LE (MiBeacon) | Sensori Xiaomi e Aqara, abbinamento di robot e prese | Niente se l'annuncio è in chiaro; la bindkey dal cloud Xiaomi se è cifrato |
-| miIO (UDP 54321) | Dispositivi Xiaomi WiFi, robot compresi | Il token di 32 caratteri del dispositivo |
-| Scoperta Tapo (UDP 20002) | Prese, lampadine, hub e telecamere Tapo | Email e password TP-Link (KLAP); le telecamere usano RTSP/ONVIF |
-| mDNS | Hub Aqara (HomeKit), Xiaomi, robot con Valetudo, Matter | Dipende dal servizio; Valetudo non chiede nulla |
-
-Limiti reali: i sensori Zigbee Aqara non sono raggiungibili dal PC senza l'hub
-o una chiavetta Zigbee USB; il Bluetooth dei robot serve di solito solo
-all'abbinamento; per modificare il firmware di un robot la via è il rooting
-(Dustbuilder) e poi Valetudo, che il modulo spiega ma non esegue.
-
-Sicurezza: i metodi in sola lettura passano sempre; ogni comando che cambia lo
-stato del dispositivo richiede `--confirm`. Token e password si leggono da
-argomento, variabile d'ambiente (`DRDEC_MIIO_TOKEN`, `DRDEC_TAPO_USER`,
-`DRDEC_TAPO_PASSWORD`) o richiesta a terminale, non vengono salvati e non
-vengono mai inviati al modello. Richiede l'extra `smarthome`.
-
-Con `drdec decompile` dai direttamente un file binario: DrDeconstruct avvia Ghidra in modalità headless (gratuito, serve Java 21 e `GHIDRA_INSTALL_DIR`), ne estrae lo pseudocodice e, con `--analyze`, lo manda al modello.
-
-### Siti web: studio e reinterpretazione, non clonazione
-
-`drdec web URL` scarica solo ciò che il browser riceve già (HTML, CSS e
-JavaScript pubblici dello stesso sito), ne ricava una mappa strutturale e la fa
-spiegare al modello. Con `--scaffold CARTELLA` scrive uno scheletro
-`index.html` + `styles.css` + `script.js` + `NOTE.md` con testi e immagini
-segnaposto e una palette neutra, da riempire con i tuoi contenuti.
-
-Con `--mirror CARTELLA` (o il pulsante "Salva copia sul PC" nella GUI) salvi
-invece una **copia privata di una sola pagina**: HTML, fogli di stile, script,
-immagini e caratteri, con i collegamenti riscritti perché si apra col browser
-anche senza rete. Serve a studiarla e modificarla sul tuo PC; i link verso
-altre pagine restano online e i tracker vengono saltati. Nella cartella un
-file `LEGGIMI.txt` elenca cosa è stato saltato e ricorda che la copia non va
-ripubblicata.
-
-Limiti voluti:
-
-- rispetta `robots.txt` e il suo `Crawl-delay`; non aggira login, paywall o
-  misure anti-scraping (401, 403 e 429 fermano la raccolta);
-- non scarica immagini, font o video, né script di terzi (vengono solo elencati);
-- testi, immagini, loghi e marchi del sito non arrivano né al modello né allo
-  scheletro: dei testi restano solo i titoli delle sezioni, per capirne l'ordine.
-
-Anche l'aspetto grafico di un sito può essere tutelato (diritto d'autore,
-marchi, concorrenza sleale): lo scheletro è un punto di partenza da
-reinterpretare, non una copia da ripubblicare. Prima di analizzare un sito
-controlla anche i suoi termini d'uso: alcuni vietano la raccolta automatica.
-
-L'orchestratore usa il tipo dichiarato dall'operatore (`--kind`). Il
-riconoscimento automatico è solo un ripiego: se è incerto, il programma si
-ferma e chiede di specificare.
-
-### Scheletri di codice riscritto
-
-`drdec scaffold` (da pseudocodice o assembly) e `drdec decompile --scaffold`
-(da un binario, via Ghidra) non si fermano alla spiegazione: per ogni funzione
-il modello ricostruisce firma, tipi, strutture, costanti e passi del flusso, e
-DrDeconstruct ne genera un sorgente da completare in C (default), Python o Rust
-(`--lang`). I nomi sono coerenti tra le funzioni (le chiamate a `FUN_00401a20`
-diventano chiamate a `crc32_update`), ogni corpo contiene il flusso come
-commenti e un TODO, e `NOTE.md` riassume nomi originali, indirizzi, confidenza
-e domande aperte.
-
-Nella GUI tutto si fa dalla scheda **Scheletro di codice**, senza riga di
-comando: quattro passaggi guidati (cosa trasformare, linguaggio, cartella,
-motore) e un'anteprima dal vivo che mostra il codice formarsi funzione per
-funzione, con l'elenco delle funzioni (fatte, in corso, non riuscite) e una
-barra di avanzamento. «Ferma» interrompe dopo la funzione in corso e salva ciò
-che è già pronto.
-
-Lo scheletro è un punto di partenza, non una copia: il modello descrive i passi
-a parole e i corpi restano da scrivere. Serve a capire e reinterpretare
-software tuo o open source, per interoperabilità, didattica o ricerca di
-sicurezza; non serve a ricostruire software proprietario aggirandone la
-licenza.
-
-## Motori LLM (nessuna chiave API obbligatoria)
-
-| Motore | Come funziona | Costo |
-|---|---|---|
-| `claude-code` (default) | Lancia la CLI `claude` in modalità headless con il tuo login claude.ai, strumenti disattivati | Consuma i limiti del tuo abbonamento |
-| `ollama` | Modello locale via `ollama serve` | Gratis e offline, serve una GPU; qualità inferiore |
-| `api` | SDK Anthropic con `ANTHROPIC_API_KEY` | A consumo; spento di default |
-
-Il motore `claude-code` toglie `ANTHROPIC_API_KEY` dall'ambiente del
-sottoprocesso, così la CLI usa sempre l'abbonamento.
-
-## Installazione
-
-```bash
-python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -e ".[dev]"
-# Motore claude-code: installa Claude Code e lancia `claude` una volta per il login.
-# Motore ollama: ollama pull qwen2.5-coder:14b
+```text
+  ____       ____                      _                   _
+ |  _ \ _ __|  _ \  ___  ___ ___  _ __ | |_ _ __ _   _  ___| |_
+ | | | | '__| | | |/ _ \/ __/ _ \| '_ \| __| '__| | | |/ __| __|
+ | |_| | |  | |_| |  __/ (_| (_) | | | | |_| |  | |_| | (__| |_
+ |____/|_|  |____/ \___|\___\___/|_| |_|\__|_|   \__,_|\___|\__|
 ```
 
-## Uso
+### Open the box. Understand what's inside. 🔬
+
+**AI-assisted reverse engineering for people who just want answers:**
+decompiled code, firmware dumps, serial logs, smart-home gadgets and websites,
+explained in plain language, step by step, from a friendly desktop app.
+
+[![Download for Windows](https://img.shields.io/badge/%E2%AC%87%20Download%20for-Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/VjAlbert/autopsy/releases/latest)
+[![Latest release](https://img.shields.io/github/v/release/VjAlbert/autopsy?style=for-the-badge&color=2fbf9f)](https://github.com/VjAlbert/autopsy/releases/latest)
+
+[![CI](https://github.com/VjAlbert/autopsy/actions/workflows/ci.yml/badge.svg)](https://github.com/VjAlbert/autopsy/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/python-3.10%2B-blue)
+![Platforms](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)
+![License](https://img.shields.io/badge/license-MIT-green)
+![Engines](https://img.shields.io/badge/AI-Claude%20%7C%20Ollama%20%7C%20API-8b6cff)
+![No API key](https://img.shields.io/badge/API%20key-not%20required-2fbf9f)
+
+<img src="docs/screenshots/01-home.png" alt="DrDeconstruct start page" width="860">
+
+</div>
+
+---
+
+## Why DrDeconstruct?
+
+Ghidra, IDA and binwalk are superb, but their output is a wall of `FUN_00401a20`, `param_1` and hex.
+DrDeconstruct takes that output and a language model, and gives you back **what the code does, with
+real names**, in a desktop app that walks you through every step. No terminal required.
+
+- 🧭 **Guided, step by step.** Every page is a numbered checklist with plain-language hints and clear errors.
+- 🧠 **Names that stay consistent.** Two-pass analysis: `FUN_00401a20` is `crc32_update` in *every* function that calls it.
+- 🔌 **From chip to explanation.** Capture a UART boot log, back up a flash chip, decompile it, understand it.
+- 🏠 **Smart-home friendly.** Find your Xiaomi, Aqara and Tapo devices and learn how to talk to each one.
+- 🔒 **Safe by default.** Read-only first; every write needs a backup, an explicit confirmation and a read-back check.
+- 💸 **No API key needed.** Use your own Claude subscription, or run a model locally with Ollama.
+
+## Download for Windows
+
+> **Easiest way:** grab the installer from the [**Releases page**](https://github.com/VjAlbert/autopsy/releases/latest).
+
+| File | Use it when |
+|---|---|
+| `DrDeconstruct-Setup-<version>.exe` | **Recommended.** Double-click, follow the wizard. Installs for your user, no admin rights. |
+| `DrDeconstruct-portable.exe` | You prefer a single file you can run from anywhere, no install. |
+| `SHA256SUMS.txt` | You want to verify your download. |
+
+No Python needed. Windows 10 and 11, 64-bit.
+
+<details>
+<summary><b>"Windows protected your PC" (SmartScreen): is it safe?</b></summary>
+
+The first time you run the app Windows may show a blue **"Windows protected your PC"** window.
+This happens to every program that is not code-signed with a paid certificate, and DrDeconstruct is an
+open-source hobby-scale project that is not signed yet. To continue:
+
+1. Click **More info**.
+2. Click **Run anyway**.
+
+You only need to do this once. If you want to be sure the file is the one built by this repository, compare
+its SHA-256 with `SHA256SUMS.txt` in the release:
+
+```powershell
+Get-FileHash .\DrDeconstruct-Setup-0.1.0.exe -Algorithm SHA256
+```
+
+The whole build is public: see [`release.yml`](.github/workflows/release.yml). Prefer not to trust a binary at all?
+[Run it from source](#run-from-source).
+</details>
+
+On the first launch, the **Start** page checks what is ready and fixes what it can with one click:
+
+| Check | What the app does for you |
+|---|---|
+| Claude Code (default engine, uses your claude.ai subscription) | **Install Claude Code** and **Sign in to Claude** buttons open the official installer and login. |
+| Ollama (optional local engine) | Tells you whether it is running and which model to pull. |
+| Ghidra + Java 21 (to decompile programs) | Links to the downloads, and **Pick the Ghidra folder** remembers it. |
+| flashrom (to read memory chips) | Only needed with a programmer such as a CH341A. |
+
+## Tour
+
+| | |
+|---|---|
+| **Explain code or data**<br>Paste decompiled C, assembly, a hex dump, a register map or a bus log. Get a readable explanation with renamed symbols, not JSON.<br><img src="docs/screenshots/02-explain.png" width="420"> | **Decompile a program**<br>Pick an `.exe`, `.elf` or raw firmware and a processor from a friendly list; Ghidra does the rest, the AI explains every function.<br><img src="docs/screenshots/03-decompile.png" width="420"> |
+| **Code skeleton**<br>Turns a decompiled program into tidy C, Python or Rust to complete: clear names, documented functions, the flow as comments. Watch it form live; **Stop** keeps what is done.<br><img src="docs/screenshots/04-scaffold.png" width="420"> | **Study a website**<br>Understand structure, components, design tokens and tech stack; keep a private offline copy of one page; get a clean skeleton for your own version.<br><img src="docs/screenshots/05-web.png" width="420"> |
+| **Connected devices**<br>List USB adapters, serial ports and Bluetooth devices, capture a UART boot log, back up a flash chip, and send the log straight to the explainer.<br><img src="docs/screenshots/06-devices.png" width="420"> | **Smart home**<br>Discover Xiaomi, Aqara and Tapo devices, see what each one is, read state when you have the token or account, get an AI plan for the rest.<br><img src="docs/screenshots/07-smart-home.png" width="420"> |
+
+A **Quality check** page measures how well the chosen engine guesses real function names (CRC32, `strlen`, UART drivers...).
+The screenshots above are generated from the GUI itself by [`scripts/make_screenshots.py`](scripts/make_screenshots.py).
+
+## AI engines (no API key required)
+
+Pick one in the top bar; it applies to every page.
+
+| Engine | How it works | Cost |
+|---|---|---|
+| **Claude Code** (default) | Runs the `claude` CLI headless with your claude.ai login and all tools disabled, so analyzed code can never make the model run anything | Uses your subscription limits |
+| **Ollama** | A local model via `ollama serve` | Free and offline, needs a decent GPU |
+| **Anthropic API** | Official SDK with `ANTHROPIC_API_KEY` | Pay-per-use, off by default |
+
+The Claude Code engine strips `ANTHROPIC_API_KEY` from the subprocess environment, so it always uses the subscription.
+If the model refuses a firmware snippet, the app retries once with a fallback model and tells you what to try.
+
+## Modules
+
+| Module | Input | Output |
+|---|---|---|
+| **Software** | C pseudocode (Ghidra/IDA) or assembly, or a whole binary via headless Ghidra | Purpose, control flow, renamed symbols, rewritten code, algorithm notes, open questions |
+| **Hardware** | Hex dump excerpts, register maps, UART/SPI/I2C/CAN logs | Recognized format, decoded fields, structures, pin and register hypotheses |
+| **Acquisition** | USB, serial and Bluetooth LE devices, flash chips via `flashrom` | Boot logs and memory images, with mandatory backup, confirmation and read-back before any write |
+| **Smart home** | Bluetooth LE (MiBeacon), miIO, Tapo discovery and KLAP, mDNS | Device inventory, state readouts, an AI guide per device |
+| **Web** | A public URL or a saved HTML file | Sections, components, design system, stack, rebuild plan, placeholder HTML/CSS skeleton, private one-page mirror |
+| **Code skeleton** | Decompiled functions | A completable C/Python/Rust source with consistent names and a `NOTE.md` |
+
+The operator **declares** the input type; the heuristic detector is only a fallback and stops to ask when unsure.
+
+### Smart-home channels and honest limits
+
+| Channel | What it sees | What you need to read state |
+|---|---|---|
+| Bluetooth LE (MiBeacon) | Xiaomi and Aqara sensors, pairing of robots and plugs | Nothing for plain advertisements; the bindkey from the Xiaomi cloud if encrypted |
+| miIO (UDP 54321) | Xiaomi WiFi devices, robot vacuums included | The device's 32-character token |
+| Tapo discovery (UDP 20002) | Tapo plugs, bulbs, hubs, cameras | TP-Link email and password (KLAP); cameras use RTSP/ONVIF |
+| mDNS | Aqara hubs (HomeKit), Xiaomi, robots running Valetudo, Matter | Depends; Valetudo asks for nothing |
+
+Zigbee Aqara sensors are not reachable from a PC without the hub or a USB Zigbee stick. Rooting a robot vacuum is explained,
+never performed. Read-only methods always pass; anything that changes a device needs explicit confirmation. Tokens and
+passwords are asked only when needed, are never stored, and are never sent to the model.
+
+### Websites: study and reinterpret, do not clone
+
+It fetches only what a browser already receives, respects `robots.txt` and `Crawl-delay`, never bypasses logins, paywalls
+or anti-scraping (401, 403 and 429 stop the collection), and sends neither site text nor images to the model.
+The optional mirror is **one page, private, for study**; a `LEGGIMI.txt` in it reminds you not to republish it.
+A site's look can be protected (copyright, trademarks, unfair competition) and its terms of use may forbid automated
+collection: the skeleton is a starting point to reinterpret, not something to republish.
+
+## Run from source
 
 ```bash
-# Un binario intero: Ghidra lo decompila e il modello lo spiega
-drdec decompile programma.exe --analyze -o risultato.json
-# Un firmware grezzo (indica il processore) e tieni solo certe funzioni
+git clone https://github.com/VjAlbert/autopsy && cd autopsy
+python -m venv .venv && source .venv/bin/activate     # Windows: .venv\Scripts\activate
+pip install -e ".[gui,smarthome,hardware]"
+drdec-gui                                              # the desktop app
+```
+
+For the default engine install [Claude Code](https://code.claude.com/docs/en/setup) and run `claude` once to sign in
+(the app's Start page can do both). For a local engine: `ollama pull qwen2.5-coder:14b`.
+
+## Command line
+
+Everything the app does is also available as `drdec` for scripting:
+
+```bash
+drdec doctor                                          # what is ready, what is missing
+drdec decompile program.exe --analyze -o result.json  # Ghidra decompiles, the model explains
 drdec decompile firmware.bin --processor MIPS:LE:32:default --filter "^FUN_" --analyze
-
-# Una funzione già esportata da Ghidra
-drdec analyze funzione.c --kind pseudocode_c --arch mips32el
-
-# Un export con molte funzioni, analizzate una alla volta
-drdec analyze export_ghidra.c --kind pseudocode_c --split -o risultato.json
-
-# Uno scheletro di codice da completare, in C (default) o Python/Rust
-drdec scaffold export_ghidra.c --out scheletro/ --lang python
-drdec decompile firmware.bin --processor MIPS:LE:32:default --scaffold scheletro/
-
-# Log di un bus seriale con il motore locale
+drdec analyze function.c --kind pseudocode_c --arch mips32el
+drdec analyze ghidra_export.c --kind pseudocode_c --split -o result.json
+drdec scaffold ghidra_export.c --out skeleton/ --lang python
 drdec analyze uart.log --kind bus_log --backend ollama
-
-# Struttura di un sito, senza modello (gratis, nessun limite consumato)
-drdec web https://esempio.it --snapshot-only
-# Analisi completa e scheletro da riempire
-drdec web https://esempio.it --scaffold mio-sito/ -o analisi.json
-# Copia privata della pagina, da aprire offline e modificare
-drdec web https://esempio.it --mirror copia-studio/
-# Una pagina già salvata dal browser
-drdec analyze pagina.html --kind web_page
-
-# Casa smart: inventario, guida AI, lettura dello stato
-drdec home scan -o casa.json
-drdec home guide --inventory casa.json
-drdec home miio 192.168.1.50                       # chiede il token, legge miIO.info
-drdec home miio 192.168.1.50 --method get_status   # stato del robot
-drdec home tapo 192.168.1.60                       # chiede l'account TP-Link
-drdec home valetudo 192.168.1.70                   # robot già con Valetudo
+drdec web https://example.com --snapshot-only         # structure only, no model, free
+drdec web https://example.com --scaffold my-site/ -o analysis.json
+drdec web https://example.com --mirror study-copy/    # private one-page copy
+drdec home scan -o home.json                          # smart-home inventory
+drdec home guide --inventory home.json
+drdec home miio 192.168.1.50                          # asks for the token
+drdec home tapo 192.168.1.60                          # asks for the TP-Link account
+drdec eval                                            # score the model's naming
 ```
 
-Variabili d'ambiente: `DRDEC_BACKEND`, `DRDEC_MODEL`, `DRDEC_OLLAMA_HOST`,
-`DRDEC_FALLBACK_MODEL`.
+Environment variables: `DRDEC_BACKEND`, `DRDEC_MODEL`, `DRDEC_OLLAMA_HOST`, `DRDEC_FALLBACK_MODEL`.
+Decompiling needs Ghidra (free) with Java 21 and `GHIDRA_INSTALL_DIR`; the app can remember the folder for you.
 
-### Nomi coerenti tra funzioni
+### Consistent names across functions
 
-Con più funzioni (`--split`, `decompile --analyze`, o più funzioni incollate
-nella GUI) l'analisi fa due passaggi. Nel primo il modello vede tutte le
-funzioni insieme e dà un solo nome a ogni funzione e globale opaca (`FUN_…`,
-`DAT_…`, `sub_…`). Nel secondo ogni funzione arriva già con quei nomi, così la
-stessa globale non cambia nome da una funzione all'altra. I nomi incerti restano
-solo come suggerimento. Il risultato contiene `symbol_map` e `functions`.
-`--no-global-names` salta il primo passaggio.
+With several functions, analysis runs in two passes. The model first sees them all and assigns one name to every opaque
+function and global (`FUN_`, `DAT_`, `sub_`); then each function is analyzed with those names already applied, so a global
+never changes name between functions. Uncertain names stay as hints. The result has a `symbol_map` and a `functions` section;
+`--no-global-names` skips the first pass.
 
-### Se il modello rifiuta
+## Project layout
 
-Firmware e codice disassemblato a volte fanno scattare i filtri di sicurezza
-del modello. Con il motore `claude-code` DrDeconstruct riprova una volta con
-`DRDEC_FALLBACK_MODEL` (default `claude-opus-4-8`; vuoto per disattivare). Con
-il motore `api` il riprovo lo fa il server (`fallbacks: "default"`). Una
-funzione rifiutata compare nel risultato con `"refused": true` e non ferma le
-altre.
-
-### Misurare la qualità dei nomi
-
-```bash
-drdec eval                     # casi inclusi: CRC32, strlen, checksum, UART 16550…
-drdec eval --no-global-names   # confronto senza il primo passaggio
-```
-
-Ogni caso ha i nomi veri noti; il report dice quanti ne indovina il modello e,
-per i programmi con più funzioni, quanto sono coerenti. Usa il modello vero.
-
-## Interfaccia grafica
-
-```bash
-pip install -e ".[gui]"
-drdec-gui
-```
-
-Finestra con tema scuro: una scheda per analizzare Software/Hardware (incolli o
-apri un file e ottieni il risultato; più funzioni C vengono analizzate una alla
-volta con nomi coerenti), una per decompilare un binario, una per studiare un
-sito web (analisi, copia privata della pagina, scheletro della tua versione:
-tutto con pulsanti, senza riga di comando), una per i dispositivi collegati, una
-per la casa smart e una "Verifica qualità" che esegue `drdec eval` con un clic.
-Il motore IA si sceglie una volta sola, in alto, per tutte le schede. Se il
-modello rifiuta, la finestra spiega cosa provare.
-
-La scheda «Casa smart» è guidata passo passo e non richiede la riga di comando:
-«Cerca dispositivi» mostra l'elenco con una spiegazione semplice per ognuno,
-«Leggi stato» chiede il token o l'account solo quando serve (senza salvarli),
-«Guida AI» spiega cosa fare per ogni dispositivo. I comandi che modificano un
-dispositivo sono nella sezione «Avanzate» e chiedono sempre conferma.
-
-## Eseguibile per Windows 10/11
-
-Non serve installare Python. Scarica `DrDeconstruct.exe` dalla pagina Releases,
-oppure compilalo con PyInstaller (vedi [`packaging/`](packaging/README.md)). A
-ogni tag `v*` la build Windows parte da sola e allega l'exe alla Release.
-
-## Struttura
-
-```
+```text
 src/drdeconstruct/
-├─ config.py            impostazioni da variabili d'ambiente
-├─ cli.py               comando `drdec`
-├─ core/                tipi, euristica di fallback, orchestratore
-├─ llm/                 motori: claude_code, ollama, anthropic_api
-├─ software/            analizzatore, mappa dei nomi tra funzioni, scheletri di codice
-├─ evaluation.py        punteggio della rinomina (`drdec eval`)
-├─ eval_cases/          casi di valutazione con i nomi veri
-├─ hardware/            schemi, prompt, analizzatore (dump, registri, bus)
-├─ web/                 raccolta rispettosa, mappa strutturale, analisi, scheletro
-├─ acquisition/         USB, seriale, Bluetooth, flash (con controlli di sicurezza)
-├─ smarthome/           Xiaomi, Aqara, Tapo: scoperta, miIO, KLAP, Valetudo, guida AI
-├─ gui/                 interfaccia grafica PySide6
-└─ preprocess/          Ghidra headless (binario -> pseudocodice) e divisione in funzioni
+├─ cli.py            `drdec` command          ├─ doctor.py     "what is ready?" checks
+├─ config.py         settings from env        ├─ report.py     results as readable Markdown
+├─ core/             types, fallback detector, orchestrator
+├─ llm/              engines: claude_code, ollama, anthropic_api
+├─ software/         analyzer, cross-function names, code skeletons
+├─ hardware/         schemas, prompts, analyzer (dumps, registers, buses)
+├─ web/              polite fetcher, structure map, analysis, skeleton, mirror
+├─ acquisition/      USB, serial, Bluetooth, flash (with safety checks)
+├─ smarthome/        Xiaomi, Aqara, Tapo: discovery, miIO, KLAP, Valetudo, AI guide
+├─ preprocess/       headless Ghidra bridge and function splitting
+├─ evaluation.py     rename scoring (`drdec eval`) + eval_cases/
+└─ gui/              PySide6 app: theme, icons, components, one module per page
 ```
 
-## Test
+## Development
 
 ```bash
-pytest      # usano un motore finto, nessuna chiamata reale
-ruff check .
+pip install -e ".[dev,gui,smarthome]"
+pytest            # fake model, no network, no hardware
+ruff check . && ruff format --check .
+QT_QPA_PLATFORM=offscreen python scripts/make_screenshots.py   # regenerate docs/screenshots
 ```
 
-## Uso lecito
+See [CONTRIBUTING.md](CONTRIBUTING.md). Windows packaging is documented in [`packaging/`](packaging/README.md).
 
-Pensato per interoperabilità, ricerca di sicurezza, didattica e analisi di
-software o dispositivi propri. Sul software proprietario, la decompilazione è
-consentita solo nei limiti di legge (in Italia art. 64-quater L. 633/1941) e
-il codice decompilato non va riutilizzato: per scrivere una propria versione
-si parte dalla specifica funzionale (clean room).
+## Legitimate use
+
+Built for interoperability, security research, education and the analysis of your own software and devices. Decompiling
+proprietary software is allowed only within the limits of the law in your country (for example the EU Software Directive,
+Art. 6), and decompiled code must not be reused: to write your own version, start from the functional specification (clean room).
+DrDeconstruct is not meant to circumvent licenses, DRM or access controls.
+
+## License
+
+[MIT](LICENSE)

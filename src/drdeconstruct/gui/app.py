@@ -12,7 +12,8 @@ def main() -> int:
 
     app = QApplication(sys.argv)
     app.setApplicationName("DrDeconstruct")
-    window = MainWindow()
+    app.setStyle("Fusion")  # base uniforme su Windows, macOS e Linux; il tema fa il resto
+    window = MainWindow(persist=True, check_system=True)
     window.show()
     return app.exec()
 

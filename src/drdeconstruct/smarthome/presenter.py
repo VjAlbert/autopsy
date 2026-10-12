@@ -41,7 +41,7 @@ SMART_HOME_STEPS = (
     "4. Se il pulsante «Leggi stato» è attivo, premilo: ti verrà chiesto il token o "
     "l'account solo se serve.\n"
     "5. Premi «Guida AI» per un piano passo passo su tutti i dispositivi trovati "
-    "(usa il motore scelto nella scheda «Software / Hardware»)."
+    "(usa il motore IA scelto in alto)."
 )
 
 
