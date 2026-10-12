@@ -52,6 +52,30 @@ L'orchestratore usa il tipo dichiarato dall'operatore (`--kind`). Il
 riconoscimento automatico è solo un ripiego: se è incerto, il programma si
 ferma e chiede di specificare.
 
+### Scheletri di codice riscritto
+
+`drdec scaffold` (da pseudocodice o assembly) e `drdec decompile --scaffold`
+(da un binario, via Ghidra) non si fermano alla spiegazione: per ogni funzione
+il modello ricostruisce firma, tipi, strutture, costanti e passi del flusso, e
+DrDeconstruct ne genera un sorgente da completare in C (default), Python o Rust
+(`--lang`). I nomi sono coerenti tra le funzioni (le chiamate a `FUN_00401a20`
+diventano chiamate a `crc32_update`), ogni corpo contiene il flusso come
+commenti e un TODO, e `NOTE.md` riassume nomi originali, indirizzi, confidenza
+e domande aperte.
+
+Nella GUI tutto si fa dalla scheda **Scheletro di codice**, senza riga di
+comando: quattro passaggi guidati (cosa trasformare, linguaggio, cartella,
+motore) e un'anteprima dal vivo che mostra il codice formarsi funzione per
+funzione, con l'elenco delle funzioni (fatte, in corso, non riuscite) e una
+barra di avanzamento. «Ferma» interrompe dopo la funzione in corso e salva ciò
+che è già pronto.
+
+Lo scheletro è un punto di partenza, non una copia: il modello descrive i passi
+a parole e i corpi restano da scrivere. Serve a capire e reinterpretare
+software tuo o open source, per interoperabilità, didattica o ricerca di
+sicurezza; non serve a ricostruire software proprietario aggirandone la
+licenza.
+
 ## Motori LLM (nessuna chiave API obbligatoria)
 
 | Motore | Come funziona | Costo |
@@ -85,6 +109,10 @@ drdec analyze funzione.c --kind pseudocode_c --arch mips32el
 
 # Un export con molte funzioni, analizzate una alla volta
 drdec analyze export_ghidra.c --kind pseudocode_c --split -o risultato.json
+
+# Uno scheletro di codice da completare, in C (default) o Python/Rust
+drdec scaffold export_ghidra.c --out scheletro/ --lang python
+drdec decompile firmware.bin --processor MIPS:LE:32:default --scaffold scheletro/
 
 # Log di un bus seriale con il motore locale
 drdec analyze uart.log --kind bus_log --backend ollama
@@ -163,7 +191,7 @@ src/drdeconstruct/
 ├─ cli.py               comando `drdec`
 ├─ core/                tipi, euristica di fallback, orchestratore
 ├─ llm/                 motori: claude_code, ollama, anthropic_api
-├─ software/            schemi, prompt, analizzatore, mappa dei nomi tra funzioni
+├─ software/            analizzatore, mappa dei nomi tra funzioni, scheletri di codice
 ├─ evaluation.py        punteggio della rinomina (`drdec eval`)
 ├─ eval_cases/          casi di valutazione con i nomi veri
 ├─ hardware/            schemi, prompt, analizzatore (dump, registri, bus)

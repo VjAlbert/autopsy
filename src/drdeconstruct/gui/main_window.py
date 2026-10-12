@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
 
 from drdeconstruct.config import BACKENDS, Settings
 from drdeconstruct.core.types import AnalysisRequest, ArtifactKind
+from drdeconstruct.gui.scaffold_tab import ScaffoldTab
 from drdeconstruct.gui.smarthome_tab import SmartHomeTab
 from drdeconstruct.gui.theme import DARK_QSS
 from drdeconstruct.gui.workers import Task
@@ -43,6 +44,8 @@ class MainWindow(QMainWindow):
         tabs = QTabWidget()
         tabs.addTab(self._build_analysis_tab(), "Software / Hardware")
         tabs.addTab(self._build_decompile_tab(), "Decompila binario")
+        self.scaffold_tab = ScaffoldTab(self.settings, self.statusBar())
+        tabs.addTab(self.scaffold_tab, "Scheletro di codice")
         tabs.addTab(self._build_devices_tab(), "Dispositivi")
         self.smarthome_tab = SmartHomeTab(self._start, self._current_settings)
         tabs.addTab(self.smarthome_tab, "Casa smart")
