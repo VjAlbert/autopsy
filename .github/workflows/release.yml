@@ -38,6 +38,18 @@ jobs:
           python-version: "3.12"
       - run: pip install -e ".[full]" pyinstaller
       - run: pyinstaller packaging/drdeconstruct.spec
+      - name: Version box must match the code
+        if: env.VERSION != ''
+        shell: pwsh
+        run: |
+          $code = python -c "import drdeconstruct; print(drdeconstruct.__version__)"
+          if ($code -ne $env:VERSION_NUMBER) { Write-Error "Version $env:VERSION_NUMBER does not match __version__ $code in src/drdeconstruct/__init__.py"; exit 1 }
+      - name: Self-check the exe (libusb, serial, Bluetooth, Qt, data files)
+        shell: pwsh
+        run: |
+          $p = Start-Process dist\DrDeconstruct.exe -ArgumentList "--self-check","selfcheck.txt" -Wait -PassThru
+          Get-Content selfcheck.txt
+          if ($p.ExitCode -ne 0) { Write-Error "Self-check failed with code $($p.ExitCode)"; exit 1 }
       - name: Smoke test the exe (starts and exits)
         shell: pwsh
         run: |

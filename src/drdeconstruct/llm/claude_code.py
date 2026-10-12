@@ -11,13 +11,51 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
+from drdeconstruct.config import NO_WINDOW
 from drdeconstruct.core.errors import BackendError, RefusalError
 from drdeconstruct.llm.base import T, parse_json_into
 
 Runner = Callable[..., subprocess.CompletedProcess]
+Which = Callable[[str], str | None]
+
+
+def find_claude(which: Which = shutil.which, home: Path | None = None) -> str | None:
+    """Percorso della CLI `claude`, o None.
+
+    Oltre al PATH guarda la cartella dell'installer ufficiale (~/.local/bin): subito
+    dopo l'installazione il PATH di DrDeconstruct è ancora quello vecchio.
+    """
+    found = which("claude")
+    if found:
+        return found
+    if home is not None:
+        native = home / ".local" / "bin" / ("claude.exe" if sys.platform == "win32" else "claude")
+        if native.is_file():
+            return str(native)
+    return None
+
+
+def claude_argv(path: str, which: Which = shutil.which) -> list[str]:
+    """Il comando con cui lanciare la CLI trovata.
+
+    Su Windows l'installazione via npm lascia `claude.cmd`, che passa per cmd.exe:
+    cmd.exe tronca gli argomenti su più righe (il prompt di sistema) e interpreta
+    caratteri come & | < > ^ %. Se c'è lo script Node dietro, lo lanciamo direttamente.
+    """
+    shim = Path(path)
+    if shim.suffix.lower() not in (".cmd", ".bat"):
+        return [path]
+    cli = shim.parent / "node_modules" / "@anthropic-ai" / "claude-code" / "cli.js"
+    node_exe = shim.parent / "node.exe"
+    node = str(node_exe) if node_exe.is_file() else which("node")
+    if cli.is_file() and node:
+        return [node, str(cli)]
+    return [path]
 
 
 class ClaudeCodeBackend:
@@ -39,9 +77,12 @@ class ClaudeCodeBackend:
         self.last_model: str | None = None
 
     def _command(self, system: str, schema_json: str, model: str | None) -> list[str]:
-        exe = shutil.which(self.executable) or self.executable
+        if self.executable == "claude":
+            exe = find_claude(home=Path.home()) or "claude"
+        else:
+            exe = shutil.which(self.executable) or self.executable
         cmd = [
-            exe,
+            *claude_argv(exe),
             "-p",
             "--output-format",
             "json",
@@ -93,6 +134,7 @@ class ClaudeCodeBackend:
                 text=True,
                 timeout=self.timeout,
                 env=self._env(),
+                **NO_WINDOW,
             )
         except FileNotFoundError as exc:
             raise BackendError(

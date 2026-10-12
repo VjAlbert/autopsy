@@ -77,3 +77,76 @@ def test_flashrom_missing(tmp_path):
 
     with pytest.raises(DrDeconstructError, match="flashrom"):
         FlashTool("ch341a_spi", runner=runner).backup(tmp_path / "x.bin")
+
+
+def _fake_pyusb(monkeypatch, devices=(), raise_no_backend=False):
+    """Installa un finto pyusb in sys.modules: la CI non ha né pyusb né libusb."""
+    import sys
+    import types
+
+    core = types.ModuleType("usb.core")
+
+    class USBError(Exception):
+        pass
+
+    class NoBackendError(ValueError):
+        pass
+
+    def find(find_all=False, backend=None):
+        if raise_no_backend:
+            raise NoBackendError("No backend available")
+        return iter(devices)
+
+    core.USBError, core.NoBackendError, core.find = USBError, NoBackendError, find
+    util = types.ModuleType("usb.util")
+
+    def get_string(dev, index):
+        raise USBError("access denied")
+
+    util.get_string = get_string
+    pkg = types.ModuleType("usb")
+    pkg.core, pkg.util = core, util
+    monkeypatch.setitem(sys.modules, "usb", pkg)
+    monkeypatch.setitem(sys.modules, "usb.core", core)
+    monkeypatch.setitem(sys.modules, "usb.util", util)
+
+
+def test_usb_scan_without_backend_explains_and_points_to_serial(monkeypatch):
+    from drdeconstruct.acquisition.usb import list_usb_devices
+
+    _fake_pyusb(monkeypatch)
+    with pytest.raises(DrDeconstructError) as err:
+        list_usb_devices(backend_loader=lambda: None)
+    assert "libusb" in str(err.value)
+    assert "Porte seriali" in str(err.value)
+
+
+def test_usb_scan_no_backend_error_is_translated(monkeypatch):
+    from drdeconstruct.acquisition.usb import list_usb_devices
+
+    _fake_pyusb(monkeypatch, raise_no_backend=True)
+    with pytest.raises(DrDeconstructError, match="Porte seriali"):
+        list_usb_devices(backend_loader=lambda: object())
+
+
+def test_usb_scan_lists_devices_even_without_readable_names(monkeypatch):
+    from types import SimpleNamespace
+
+    from drdeconstruct.acquisition.usb import list_usb_devices
+
+    dev = SimpleNamespace(idVendor=0x1A86, idProduct=0x7523, iProduct=2, bus=1, address=4)
+    _fake_pyusb(monkeypatch, devices=[dev])
+    devices = list_usb_devices(backend_loader=lambda: object())
+    assert devices[0].identifier == "1a86:7523"
+    assert devices[0].label == "nome non leggibile"
+
+
+def test_ble_errors_become_plain_messages(monkeypatch):
+    pytest.importorskip("bleak")
+    from drdeconstruct.acquisition.bluetooth import run_ble
+
+    async def no_adapter(bleak):
+        raise OSError(2, "No such file or directory")
+
+    with pytest.raises(DrDeconstructError, match="Bluetooth non risponde"):
+        run_ble(no_adapter)

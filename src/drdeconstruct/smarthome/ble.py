@@ -8,7 +8,6 @@ del dispositivo, che si ottiene dal cloud Xiaomi e qui non viene gestita.
 
 from __future__ import annotations
 
-import asyncio
 import struct
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
@@ -196,11 +195,9 @@ def identify_all(ads: Iterable[Advertisement]) -> list[SmartDevice]:
 
 def scan_advertisements(timeout: float = 8.0) -> list[Advertisement]:
     """Ascolta gli annunci BLE con bleak (extra smarthome)."""
-    from drdeconstruct.acquisition.bluetooth import _require_bleak
+    from drdeconstruct.acquisition.bluetooth import run_ble
 
-    bleak = _require_bleak()
-
-    async def _scan():
+    async def _scan(bleak):
         found = await bleak.BleakScanner.discover(timeout=timeout, return_adv=True)
         return [
             Advertisement(
@@ -214,7 +211,7 @@ def scan_advertisements(timeout: float = 8.0) -> list[Advertisement]:
             for device, adv in found.values()
         ]
 
-    return asyncio.run(_scan())
+    return run_ble(_scan)
 
 
 def scan(timeout: float = 8.0, scanner=scan_advertisements) -> list[SmartDevice]:

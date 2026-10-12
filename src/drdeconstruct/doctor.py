@@ -50,8 +50,10 @@ class Check:
         return "○" if self.optional else "✗"
 
 
-def check_claude_code(which: Which = shutil.which) -> Check:
-    path = which("claude")
+def check_claude_code(which: Which = shutil.which, home: Path | None = None) -> Check:
+    from drdeconstruct.llm.claude_code import find_claude
+
+    path = find_claude(which, home)
     if path:
         return Check(
             "claude-code",
@@ -194,7 +196,7 @@ def engine_check(
         return check_ollama(settings.ollama_host, model, opener)
     if settings.backend == "api":
         return check_api(env)
-    return check_claude_code(which)
+    return check_claude_code(which, Path.home() if which is shutil.which else None)
 
 
 def run_checks(
@@ -212,13 +214,17 @@ def run_checks(
     ]
 
 
-def login_command(platform: str = sys.platform) -> list[str]:
+def login_command(platform: str = sys.platform, exe: str | None = None) -> list[str]:
     """Apre una finestra di terminale con `claude`, che guida il login nel browser."""
+    if exe is None:
+        from drdeconstruct.llm.claude_code import find_claude
+
+        exe = find_claude(home=Path.home()) or "claude"
     if platform == "win32":
-        return ["cmd.exe", "/c", "start", "Claude", "cmd.exe", "/k", "claude"]
+        return ["cmd.exe", "/c", "start", "Claude", "cmd.exe", "/k", exe]
     if platform == "darwin":
         return ["osascript", "-e", 'tell application "Terminal" to do script "claude"']
-    return ["x-terminal-emulator", "-e", "claude"]
+    return ["x-terminal-emulator", "-e", exe]
 
 
 def install_command(platform: str = sys.platform) -> list[str]:
@@ -254,3 +260,59 @@ def format_checks(checks: list[Check]) -> str:
         if not c.ok and c.link:
             lines.append(f"    {c.link}")
     return "\n".join(lines)
+
+
+def bundle_self_check() -> list[tuple[str, bool, str]]:
+    """Verifica che l'exe contenga tutto ciò che serve (usato dalla build Windows).
+
+    Ogni voce è (nome, ok, dettaglio). Non tocca dispositivi: carica solo librerie e file.
+    """
+    import importlib
+
+    results: list[tuple[str, bool, str]] = []
+
+    def check(name: str, fn: Callable[[], object]) -> None:
+        try:
+            detail = fn()
+            results.append((name, True, str(detail or "")))
+        except Exception as exc:  # il rapporto deve elencare tutto, anche gli errori
+            results.append((name, False, f"{type(exc).__name__}: {exc}"))
+
+    def libusb():
+        from drdeconstruct.acquisition.usb import _load_usb_backend
+
+        backend = _load_usb_backend()
+        if backend is None:
+            raise RuntimeError("nessun backend libusb")
+        return type(backend).__module__
+
+    def serial_ports():
+        from serial.tools import list_ports
+
+        return f"{len(list_ports.comports())} porte"
+
+    def bleak_backend():
+        import bleak
+
+        if sys.platform == "win32":
+            importlib.import_module("bleak.backends.winrt.scanner")
+        return bleak.__name__
+
+    def data_files():
+        from drdeconstruct.evaluation import CASES_DIR
+        from drdeconstruct.preprocess.ghidra import SCRIPTS_DIR
+
+        cases = list(CASES_DIR.glob("*.json"))
+        scripts = list(SCRIPTS_DIR.iterdir())
+        if not cases or not scripts:
+            raise RuntimeError(f"casi={len(cases)} script Ghidra={len(scripts)}")
+        return f"casi={len(cases)} script Ghidra={len(scripts)}"
+
+    check("Qt", lambda: importlib.import_module("PySide6.QtWidgets").__name__)
+    check("libusb", libusb)
+    check("seriale", serial_ports)
+    check("bluetooth", bleak_backend)
+    for module in ("zeroconf", "cryptography.hazmat.primitives.ciphers", "anthropic"):
+        check(module, lambda m=module: importlib.import_module(m).__name__)
+    check("file di dati", data_files)
+    return results

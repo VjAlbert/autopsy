@@ -15,6 +15,7 @@ from pathlib import Path
 
 from drdeconstruct.acquisition.models import MemoryImage
 from drdeconstruct.acquisition.safety import WriteGuard, sha256, verify_readback
+from drdeconstruct.config import NO_WINDOW
 from drdeconstruct.core.errors import DrDeconstructError, SafetyError
 
 Runner = Callable[..., subprocess.CompletedProcess]
@@ -37,7 +38,9 @@ class FlashTool:
 
     def _exec(self, args: list[str]) -> str:
         try:
-            proc = self._run(self._base_cmd() + args, capture_output=True, text=True, timeout=600)
+            proc = self._run(
+                self._base_cmd() + args, capture_output=True, text=True, timeout=600, **NO_WINDOW
+            )
         except FileNotFoundError as exc:
             raise DrDeconstructError(
                 "`flashrom` non trovato: installalo (flashrom.org) e collega il programmatore."
