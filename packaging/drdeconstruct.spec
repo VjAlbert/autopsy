@@ -1,5 +1,5 @@
-# PyInstaller spec: costruisce DrDeconstruct.exe (finestra grafica, file unico).
-# Uso: pyinstaller packaging/drdeconstruct.spec
+# PyInstaller spec: builds DrDeconstruct.exe (GUI window, single file).
+# Usage: pyinstaller packaging/drdeconstruct.spec
 import os
 
 from PyInstaller.utils.hooks import collect_submodules
@@ -18,7 +18,7 @@ a = Analysis(
     ["entry_gui.py"],
     pathex=["src"],
     binaries=[],
-    # File non Python che il pacchetto legge a runtime accanto ai suoi moduli.
+    # Non-Python files the package reads at runtime next to its modules.
     datas=[
         (os.path.join(PKG, "preprocess", "ghidra_scripts"), "drdeconstruct/preprocess/ghidra_scripts"),
         (os.path.join(PKG, "eval_cases"), "drdeconstruct/eval_cases"),
@@ -38,4 +38,5 @@ exe = EXE(
     console=False,
     onefile=True,
     upx=False,
+    icon=os.path.join(SPECPATH, "drdeconstruct.ico"),
 )

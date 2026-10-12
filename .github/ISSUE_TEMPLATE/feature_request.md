@@ -1,11 +1,11 @@
 ---
-name: Proposta di funzionalità
-about: Un'idea per migliorare DrDeconstruct
+name: Feature request
+about: An idea to make DrDeconstruct better
 labels: enhancement
 ---
 
-**Il problema**
+**The problem**
 
-**La soluzione che proponi**
+**The solution you propose**
 
-**Alternative valutate**
+**Alternatives considered**

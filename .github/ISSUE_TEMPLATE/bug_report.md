@@ -1,18 +1,20 @@
 ---
-name: Segnalazione bug
-about: Qualcosa non funziona come dovrebbe
+name: Bug report
+about: Something does not work as it should
 labels: bug
 ---
 
-**Cosa succede**
+**What happens**
 
-**Come riprodurlo**
+**How to reproduce**
 1.
 2.
 
-**Cosa ti aspettavi**
+**What you expected**
 
-**Ambiente**
-- SO:
-- Versione Python:
-- Motore LLM (claude-code / ollama / api):
+**Environment**
+- OS (e.g. Windows 11):
+- How you run it (installer / portable exe / from source):
+- App version (Help > About):
+- AI engine (Claude / Ollama / API):
+- Output of `drdec doctor` if you can run it:

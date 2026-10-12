@@ -17,8 +17,6 @@ def tab(app, monkeypatch):
     from drdeconstruct.config import Settings
     from drdeconstruct.gui.scaffold_tab import ScaffoldTab
 
-    monkeypatch.setattr("drdeconstruct.gui.scaffold_tab.QMessageBox.warning", lambda *a: None)
-    monkeypatch.setattr("drdeconstruct.gui.scaffold_tab.QMessageBox.critical", lambda *a: None)
     widget = ScaffoldTab(Settings(backend="ollama"))
     yield widget
     widget.close()
@@ -32,7 +30,7 @@ def _wait(app, tab):
 def test_defaults_are_guided(tab):
     assert tab.mode_binary.isChecked() and tab.source_stack.currentIndex() == 0
     assert tab.lang_box.currentData() == "c"
-    assert tab.backend_box.currentData() == "ollama"
+    assert tab._settings().backend == "ollama"
     assert "DrDeconstruct" in tab.folder_edit.text()
     tab.mode_text.setChecked(True)
     assert tab.source_stack.currentIndex() == 1
@@ -41,7 +39,7 @@ def test_defaults_are_guided(tab):
 def test_missing_input_starts_nothing(tab, tmp_path):
     tab.folder_edit.setText(str(tmp_path / "out"))
     tab.start()  # nessun binario scelto
-    assert tab._task is None
+    assert tab._task is None and "Scegli file" in tab.banner.text
     tab.mode_text.setChecked(True)
     tab.start()  # nessun codice incollato
     assert tab._task is None

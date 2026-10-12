@@ -1,4 +1,4 @@
-"""Entry point per PyInstaller (evita l'import indiretto via console_scripts)."""
+"""Entry point for PyInstaller (avoids the indirect console_scripts import)."""
 
 from drdeconstruct.gui.app import main
 

@@ -1,13 +1,14 @@
 """Scheda "Scheletro di codice": passaggi guidati e anteprima dal vivo.
 
-A sinistra l'operatore sceglie cosa trasformare, il linguaggio, la cartella e
-il motore; a destra vede lo scheletro formarsi funzione per funzione mentre il
-modello lavora, e può fermarlo tenendo ciò che è già pronto.
+A sinistra l'operatore sceglie cosa trasformare, il linguaggio e la cartella
+(il motore è quello della barra in alto); a destra vede lo scheletro formarsi
+funzione per funzione mentre il modello lavora, e può fermarlo tenendo ciò che
+è già pronto.
 """
 
 from __future__ import annotations
 
-from dataclasses import replace
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
@@ -18,15 +19,14 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QFileDialog,
-    QHBoxLayout,
+    QFrame,
     QLabel,
     QLineEdit,
     QListWidget,
-    QMessageBox,
     QPlainTextEdit,
     QProgressBar,
-    QPushButton,
     QRadioButton,
+    QScrollArea,
     QSplitter,
     QStackedWidget,
     QStatusBar,
@@ -34,7 +34,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from drdeconstruct.config import BACKENDS, Settings
+from drdeconstruct.config import Settings
+from drdeconstruct.gui.components import Page, StepCard, button, row
 from drdeconstruct.gui.workers import Task
 from drdeconstruct.software.scaffold import DEFAULT_LANGUAGE, Language
 
@@ -44,27 +45,32 @@ LANGUAGE_LABELS = {
     Language.RUST: "Rust",
 }
 
-BACKEND_HINTS = {
-    "claude-code": "usa il tuo abbonamento claude.ai, nessuna chiave",
-    "ollama": "modello locale, funziona senza internet",
-    "api": "richiede una chiave API (a pagamento, spento di default)",
-}
-
 
 def default_folder(stem: str = "scheletro") -> Path:
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     return Path.home() / "DrDeconstruct" / "scheletri" / f"{stem}-{stamp}"
 
 
-class ScaffoldTab(QWidget):
+class ScaffoldTab(Page):
+    nav_title = "Scheletro di codice"
+    nav_icon = "layers"
+
     def __init__(
         self,
-        settings: Settings,
+        settings: Settings | Callable[[], Settings],
         status_bar: QStatusBar | None = None,
         parent: QWidget | None = None,
     ):
-        super().__init__(parent)
-        self.settings = settings
+        super().__init__(
+            "Scheletro di codice",
+            "Trasforma un programma decompilato in un codice ordinato da completare: nomi "
+            "chiari, funzioni descritte e, dentro, i passi da scrivere.",
+            self.nav_icon,
+            scroll=False,
+            parent=parent,
+        )
+        # Il motore è quello scelto nella barra in alto (vale per tutte le schede).
+        self._settings = settings if callable(settings) else (lambda: settings)
         self._status_bar = status_bar
         self._task: Task | None = None
         self._stop_requested = False
@@ -73,38 +79,31 @@ class ScaffoldTab(QWidget):
         self.result_dir: Path | None = None
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
-        splitter.addWidget(self._build_steps())
+        steps = QScrollArea()
+        steps.setWidgetResizable(True)
+        steps.setWidget(self._build_steps())
+        splitter.addWidget(steps)
         splitter.addWidget(self._build_preview())
         splitter.setStretchFactor(0, 2)
         splitter.setStretchFactor(1, 3)
-        layout = QVBoxLayout(self)
-        layout.addWidget(splitter)
+        self.body.addWidget(splitter, 1)
 
     # --- Passaggi guidati ------------------------------------------------
     def _build_steps(self) -> QWidget:
         w = QWidget()
         layout = QVBoxLayout(w)
-        layout.addWidget(_label("Scheletro di codice riscritto", "heading"))
-        layout.addWidget(
-            _label(
-                "Trasforma un programma decompilato in un codice ordinato da completare: "
-                "nomi chiari, funzioni con la loro descrizione e, dentro, i passi da "
-                "scrivere. Non è una copia del programma: è un punto di partenza per "
-                "capirlo e rifarlo a modo tuo. Usalo su software tuo o open source.",
-                "hint",
-            )
-        )
+        layout.setContentsMargins(0, 0, 8, 0)
+        layout.setSpacing(12)
 
         # 1. Sorgente
-        layout.addWidget(_label("1. Cosa vuoi trasformare?", "step"))
+        s1 = StepCard(1, "Cosa vuoi trasformare?")
         self.mode_binary = QRadioButton("Un programma o un firmware (.exe, .bin, .elf…)")
         self.mode_text = QRadioButton("Codice già decompilato (Ghidra/IDA) o assembly")
         self.mode_binary.setChecked(True)
         group = QButtonGroup(self)
         group.addButton(self.mode_binary)
         group.addButton(self.mode_text)
-        layout.addWidget(self.mode_binary)
-        layout.addWidget(self.mode_text)
+        s1.add(self.mode_binary).add(self.mode_text)
 
         self.source_stack = QStackedWidget()
         self.source_stack.addWidget(self._binary_page())
@@ -112,52 +111,46 @@ class ScaffoldTab(QWidget):
         self.mode_binary.toggled.connect(
             lambda on: self.source_stack.setCurrentIndex(0 if on else 1)
         )
-        layout.addWidget(self.source_stack)
+        s1.add(self.source_stack)
+        layout.addWidget(s1)
 
         # 2. Linguaggio
-        layout.addWidget(_label("2. In che linguaggio lo vuoi?", "step"))
+        s2 = StepCard(2, "In che linguaggio lo vuoi?")
         self.lang_box = QComboBox()
         for lang, text in LANGUAGE_LABELS.items():
             self.lang_box.addItem(text, lang.value)
         self.lang_box.setCurrentIndex(list(LANGUAGE_LABELS).index(DEFAULT_LANGUAGE))
-        layout.addWidget(self.lang_box)
+        s2.add(self.lang_box)
+        layout.addWidget(s2)
 
         # 3. Cartella
-        layout.addWidget(_label("3. Dove salvarlo?", "step"))
-        row = QHBoxLayout()
-        self.folder_edit = QLineEdit(str(default_folder()))
-        pick = QPushButton("Cambia…")
-        pick.clicked.connect(self._pick_folder)
-        row.addWidget(self.folder_edit, 1)
-        row.addWidget(pick)
-        layout.addLayout(row)
-        layout.addWidget(
-            _label("Usa una cartella nuova o vuota: niente viene sovrascritto.", "hint")
+        s3 = StepCard(
+            3, "Dove salvarlo?", "Usa una cartella nuova o vuota: niente viene sovrascritto."
         )
+        self.folder_edit = QLineEdit(str(default_folder()))
+        s3.add(row(self.folder_edit, button("Cambia…", self._pick_folder, icon_name="folder")))
+        layout.addWidget(s3)
 
-        # 4. Motore
-        layout.addWidget(_label("4. Quale motore AI?", "step"))
-        self.backend_box = QComboBox()
-        for name in BACKENDS:
-            hint = BACKEND_HINTS.get(name)
-            self.backend_box.addItem(f"{name} ({hint})" if hint else name, name)
-        index = self.backend_box.findData(self.settings.backend)
-        self.backend_box.setCurrentIndex(max(index, 0))
-        layout.addWidget(self.backend_box)
-
-        # Azioni
-        buttons = QHBoxLayout()
-        self.run_btn = QPushButton("Genera scheletro")
-        self.run_btn.clicked.connect(self.start)
-        self.stop_btn = QPushButton("Ferma")
-        self.stop_btn.setObjectName("danger")
+        # 4. Avvio
+        s4 = StepCard(
+            4,
+            "Avvia",
+            "Usa il motore IA scelto in alto. «Ferma» si ferma dopo la funzione in corso e "
+            "salva ciò che è pronto.",
+        )
+        self.run_btn = button("Genera scheletro", self.start, "primary", "play")
+        self.stop_btn = button("Ferma", self.stop, "danger", "stop")
         self.stop_btn.setEnabled(False)
         self.stop_btn.setToolTip("Si ferma dopo la funzione in corso e salva ciò che è pronto.")
-        self.stop_btn.clicked.connect(self.stop)
-        buttons.addWidget(self.run_btn, 1)
-        buttons.addWidget(self.stop_btn)
-        layout.addSpacing(8)
-        layout.addLayout(buttons)
+        s4.add(row(self.run_btn, self.stop_btn, None))
+        layout.addWidget(s4)
+        layout.addWidget(
+            _label(
+                "Non è una copia del programma: è un punto di partenza per capirlo e rifarlo "
+                "a modo tuo. Usalo su software tuo o open source.",
+                "hint",
+            )
+        )
         layout.addStretch()
         return w
 
@@ -165,14 +158,11 @@ class ScaffoldTab(QWidget):
         w = QWidget()
         layout = QVBoxLayout(w)
         layout.setContentsMargins(0, 0, 0, 0)
-        row = QHBoxLayout()
         self.binary_edit = QLineEdit()
         self.binary_edit.setPlaceholderText("scegli il file del programma")
-        pick = QPushButton("Scegli file…")
-        pick.clicked.connect(self._pick_binary)
-        row.addWidget(self.binary_edit, 1)
-        row.addWidget(pick)
-        layout.addLayout(row)
+        layout.addLayout(
+            row(self.binary_edit, button("Scegli file…", self._pick_binary, icon_name="folder"))
+        )
         self.processor_edit = QLineEdit()
         self.processor_edit.setPlaceholderText(
             "processore, solo per firmware grezzi (es. MIPS:LE:32:default)"
@@ -193,21 +183,18 @@ class ScaffoldTab(QWidget):
         self.code_input = QPlainTextEdit()
         self.code_input.setPlaceholderText("Incolla qui il codice decompilato o l'assembly…")
         layout.addWidget(self.code_input)
-        row = QHBoxLayout()
-        load = QPushButton("Apri file di testo…")
-        load.clicked.connect(self._load_text)
         self.asm_check = QCheckBox("È assembly (non C)")
-        row.addWidget(load)
-        row.addStretch()
-        row.addWidget(self.asm_check)
-        layout.addLayout(row)
+        load = button("Apri file di testo…", self._load_text, icon_name="folder")
+        layout.addLayout(row(load, None, self.asm_check))
         return w
 
     # --- Anteprima dal vivo ----------------------------------------------
     def _build_preview(self) -> QWidget:
-        w = QWidget()
+        w = QFrame()
+        w.setObjectName("card")
         layout = QVBoxLayout(w)
-        layout.addWidget(_label("Anteprima dal vivo", "heading"))
+        layout.setContentsMargins(14, 12, 14, 12)
+        layout.addWidget(_label("Anteprima dal vivo", "stepTitle"))
         self.status_label = _label("Segui i passi a sinistra e premi «Genera scheletro».", "hint")
         layout.addWidget(self.status_label)
         self.progress = QProgressBar()
@@ -226,9 +213,10 @@ class ScaffoldTab(QWidget):
         self.preview.setPlaceholderText("Qui vedrai il codice formarsi, una funzione alla volta.")
         layout.addWidget(self.preview, 1)
 
-        self.open_btn = QPushButton("Apri la cartella dello scheletro")
+        self.open_btn = button(
+            "Apri la cartella dello scheletro", self._open_folder, icon_name="folder"
+        )
         self.open_btn.setEnabled(False)
-        self.open_btn.clicked.connect(self._open_folder)
         layout.addWidget(self.open_btn)
         return w
 
@@ -274,15 +262,13 @@ class ScaffoldTab(QWidget):
             return
         folder_text = self.folder_edit.text().strip()
         if not folder_text:
-            QMessageBox.warning(self, "Manca la cartella", "Indica dove salvare lo scheletro.")
+            self.banner.warning("Manca la cartella: indica dove salvare lo scheletro (passo 3).")
             return
         folder = Path(folder_text).expanduser()
         if folder.exists() and any(folder.iterdir()):
-            QMessageBox.warning(
-                self,
-                "Cartella non vuota",
+            self.banner.warning(
                 "La cartella scelta contiene già dei file. Scegline una vuota o nuova "
-                "per non sovrascrivere nulla.",
+                "per non sovrascrivere nulla (passo 3)."
             )
             return
 
@@ -290,17 +276,13 @@ class ScaffoldTab(QWidget):
         path = self.binary_edit.text().strip()
         code = self.code_input.toPlainText().strip()
         if binary and not path:
-            QMessageBox.warning(
-                self, "Manca il file", "Premi «Scegli file…» e indica il programma."
-            )
+            self.banner.warning("Manca il file: premi «Scegli file…» nel passo 1.")
             return
         if not binary and not code:
-            QMessageBox.warning(
-                self, "Manca il codice", "Incolla il codice decompilato o apri un file di testo."
-            )
+            self.banner.warning("Manca il codice: incollalo nel passo 1 o apri un file di testo.")
             return
 
-        settings = replace(self.settings, backend=self.backend_box.currentData())
+        settings = self._settings()
         lang = self.lang_box.currentData()
         processor = self.processor_edit.text().strip() or None
         source_name = self._source_name
@@ -345,6 +327,7 @@ class ScaffoldTab(QWidget):
         self.preview.clear()
         self._items = {}
         self.progress.setRange(0, 0)  # in attesa
+        self.banner.busy("Generazione in corso: segui l'anteprima a destra.")
         self._status("Preparo il lavoro…")
 
         self._task = Task(job, self, with_report=True)
@@ -400,13 +383,16 @@ class ScaffoldTab(QWidget):
             f"Salvato in {self.result_dir}"
         )
         self.open_btn.setEnabled(True)
+        self.banner.success(
+            f"Scheletro pronto in {self.result_dir}. Premi «Apri la cartella dello scheletro»."
+        )
 
     def _on_failed(self, message: str) -> None:
         self._reset_buttons()
         self.progress.setRange(0, 1)
         self.progress.setValue(0)
         self._status("Non è andata a buon fine.")
-        QMessageBox.critical(self, "Scheletro non generato", message)
+        self.banner.error(f"Scheletro non generato. {message}")
 
     def _reset_buttons(self) -> None:
         self.run_btn.setEnabled(True)

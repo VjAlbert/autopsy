@@ -12,23 +12,19 @@ import json
 from collections.abc import Callable
 from pathlib import Path
 
-from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QFileDialog,
     QGroupBox,
     QHBoxLayout,
     QInputDialog,
-    QLabel,
     QLineEdit,
     QListWidget,
     QMessageBox,
-    QPushButton,
     QTextEdit,
-    QVBoxLayout,
-    QWidget,
 )
 
 from drdeconstruct.config import Settings
+from drdeconstruct.gui.components import Page, button, row
 from drdeconstruct.smarthome.inventory import Inventory
 from drdeconstruct.smarthome.models import SmartDevice
 from drdeconstruct.smarthome.presenter import (
@@ -44,51 +40,54 @@ from drdeconstruct.smarthome.presenter import (
 Runner = Callable[..., None]
 
 
-class SmartHomeTab(QWidget):
-    def __init__(self, run: Runner, settings: Callable[[], Settings], parent=None):
-        super().__init__(parent)
-        self._run = run
+class SmartHomeTab(Page):
+    nav_title = "Casa smart"
+    nav_icon = "house"
+
+    def __init__(self, run: Runner | None, settings: Callable[[], Settings], parent=None):
+        super().__init__(
+            "Casa smart",
+            "Trova i tuoi dispositivi Xiaomi, Aqara e Tapo, scopri cosa sono e leggine lo "
+            "stato. Nulla viene modificato senza la tua conferma.",
+            self.nav_icon,
+            run,
+            parent=parent,
+        )
         self._settings = settings
         self.inventory: Inventory | None = None
 
-        layout = QVBoxLayout(self)
-        title = QLabel("Dispositivi Xiaomi, Aqara e Tapo")
-        title.setObjectName("heading")
-        layout.addWidget(title)
-        steps = QLabel(SMART_HOME_STEPS)
-        steps.setObjectName("hint")
-        steps.setWordWrap(True)
-        steps.setAlignment(Qt.AlignmentFlag.AlignTop)
-        layout.addWidget(steps)
+        s1 = self.step(1, "Come funziona", SMART_HOME_STEPS)
+        self.scan_btn = button("Cerca dispositivi", self.scan, "primary", "search")
+        s1.add(row(self.scan_btn, None))
 
-        row = QHBoxLayout()
-        self.scan_btn = QPushButton("Cerca dispositivi")
-        self.scan_btn.clicked.connect(self.scan)
-        self.read_btn = QPushButton("Leggi stato")
-        self.read_btn.setEnabled(False)
-        self.read_btn.clicked.connect(self.read_state)
-        self.guide_btn = QPushButton("Guida AI")
-        self.guide_btn.setEnabled(False)
-        self.guide_btn.clicked.connect(self.run_guide)
-        save_btn = QPushButton("Salva elenco…")
-        save_btn.clicked.connect(self.save_inventory)
-        load_btn = QPushButton("Apri elenco…")
-        load_btn.clicked.connect(self.load_inventory)
-        for b in (self.scan_btn, self.read_btn, self.guide_btn):
-            row.addWidget(b)
-        row.addStretch()
-        row.addWidget(save_btn)
-        row.addWidget(load_btn)
-        layout.addLayout(row)
-
+        s2 = self.step(
+            2, "I tuoi dispositivi", "Clicca un dispositivo per sapere cos'è e cosa serve."
+        )
         self.device_list = QListWidget()
+        self.device_list.setMinimumHeight(150)
         self.device_list.currentRowChanged.connect(self.show_device)
-        layout.addWidget(self.device_list, 2)
+        s2.add(self.device_list)
+        save_btn = button("Salva elenco…", self.save_inventory, icon_name="save")
+        load_btn = button("Apri elenco…", self.load_inventory, icon_name="folder")
+        s2.add(row(None, save_btn, load_btn))
+
+        s3 = self.step(
+            3,
+            "Leggi lo stato o chiedi aiuto all'IA",
+            "«Leggi stato» chiede token o account solo se servono e non li salva.",
+        )
+        self.read_btn = button("Leggi stato", self.read_state, icon_name="play")
+        self.read_btn.setEnabled(False)
+        self.guide_btn = button("Guida AI", self.run_guide, icon_name="help")
+        self.guide_btn.setEnabled(False)
+        s3.add(row(self.read_btn, self.guide_btn, None))
         self.view = QTextEdit()
         self.view.setReadOnly(True)
+        self.view.setMinimumHeight(180)
         self.view.setPlainText("Premi «Cerca dispositivi» per iniziare.")
-        layout.addWidget(self.view, 3)
-        layout.addWidget(self._build_advanced())
+        s3.add(self.view)
+        self.body.addWidget(self._build_advanced())
+        self.busy_widgets = [self.scan_btn]
 
     def _build_advanced(self) -> QGroupBox:
         box = QGroupBox("Avanzate: invia un comando (può modificare il dispositivo)")
@@ -99,8 +98,7 @@ class SmartHomeTab(QWidget):
         self.method_edit.setPlaceholderText("comando, es. get_status oppure app_start")
         self.params_edit = QLineEdit()
         self.params_edit.setPlaceholderText("parametri JSON, es. [] oppure {}")
-        self.send_btn = QPushButton("Invia")
-        self.send_btn.clicked.connect(self.send_command)
+        self.send_btn = button("Invia", self.send_command, "danger")
         inner.addWidget(self.method_edit, 2)
         inner.addWidget(self.params_edit, 2)
         inner.addWidget(self.send_btn)
@@ -112,7 +110,7 @@ class SmartHomeTab(QWidget):
 
         self.device_list.clear()
         self.view.setPlainText("Ricerca in corso: può richiedere una decina di secondi…")
-        self._run(
+        self.run(
             lambda: build_inventory(default_scanners()),
             on_done=self.set_inventory,
             busy="Ricerca dispositivi smart home…",
@@ -130,6 +128,12 @@ class SmartHomeTab(QWidget):
         )
         errors = describe_errors(inv.errors)
         self.view.setPlainText(found + ("\n\n" + errors if errors else ""))
+        if inv.devices:
+            self.banner.success(
+                f"Trovati {len(inv.devices)} dispositivi: cliccane uno nel passo 2."
+            )
+        else:
+            self.banner.warning("Nessun dispositivo trovato. Controlla WiFi e Bluetooth e riprova.")
 
     @staticmethod
     def _label(dev: SmartDevice) -> str:
@@ -230,7 +234,7 @@ class SmartHomeTab(QWidget):
             return
         job = self._job(dev, None, None, confirmed=False)
         if job is not None:
-            self._run(job, on_done=self._show_state, busy="Lettura dello stato…")
+            self.run(job, on_done=self._show_state, busy="Lettura dello stato…")
 
     def send_command(self) -> None:
         from drdeconstruct.smarthome.safety import MIIO_READ_ONLY, TAPO_READ_ONLY
@@ -259,7 +263,7 @@ class SmartHomeTab(QWidget):
             return
         job = self._job(dev, method, params, confirmed=not read_only)
         if job is not None:
-            self._run(job, on_done=self._show_state, busy=f"Invio di {method}…")
+            self.run(job, on_done=self._show_state, busy=f"Invio di {method}…")
 
     def _show_state(self, data) -> None:
         self.view.setPlainText("Stato del dispositivo:\n\n" + format_state(data))
@@ -274,7 +278,7 @@ class SmartHomeTab(QWidget):
         inv = self.inventory
         settings = self._settings()
         self.view.setPlainText("La guida sta analizzando i dispositivi trovati…")
-        self._run(
+        self.run(
             lambda: SmartHomeAdvisor(make_backend(settings)).advise(inv),
             on_done=lambda guide: self.view.setPlainText(format_guide(guide)),
             busy="Guida AI al lavoro…",
