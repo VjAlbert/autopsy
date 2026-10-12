@@ -77,6 +77,19 @@ def _decode(resp: HttpResponse) -> str:
         return resp.body.decode("utf-8", errors="replace")
 
 
+class HttpStatusError(FetchError):
+    """Il server ha risposto con uno stato che impone di fermarsi (401, 403, 429)."""
+
+    def __init__(self, message: str, status: int):
+        super().__init__(message)
+        self.status = status
+
+
+def _origin(url: str) -> str:
+    parts = urlsplit(url)
+    return f"{parts.scheme}://{parts.netloc}"
+
+
 class SiteFetcher:
     def __init__(
         self,
@@ -87,55 +100,95 @@ class SiteFetcher:
         self._get = getter
         self.max_resources = max_resources
         self._sleep = sleep
-        self._robots: robotparser.RobotFileParser | None = None
-        self._delay = 0.0
+        self._robots: dict[str, robotparser.RobotFileParser] = {}
+        self._delays: dict[str, float] = {}
+        self._robots_errors: dict[str, FetchError] = {}
 
-    def _load_robots(self, origin: str) -> None:
+    def _robots_for(self, origin: str) -> robotparser.RobotFileParser:
+        if origin in self._robots:
+            return self._robots[origin]
+        if origin in self._robots_errors:
+            raise self._robots_errors[origin]
+        try:
+            return self._load_robots(origin)
+        except FetchError as exc:
+            self._robots_errors[origin] = exc
+            raise
+
+    def _load_robots(self, origin: str) -> robotparser.RobotFileParser:
         rp = robotparser.RobotFileParser()
         resp = self._get(origin + "/robots.txt")
         if resp.status == 429:
-            raise FetchError(f"{origin}: 429 (troppe richieste). Riprova più tardi.")
+            raise HttpStatusError(f"{origin}: 429 (troppe richieste). Riprova più tardi.", 429)
         if resp.status in (401, 403):
             rp.disallow_all = True  # convenzione: robots protetto = accesso vietato
         elif resp.status >= 500:
-            raise FetchError(f"robots.txt non disponibile ({resp.status}): mi fermo per prudenza.")
+            raise FetchError(
+                f"robots.txt di {origin} non disponibile ({resp.status}): mi fermo per prudenza."
+            )
         elif resp.status >= 400:
             rp.allow_all = True
         else:
             rp.parse(_decode(resp).splitlines())
-        self._robots = rp
-        self._delay = float(rp.crawl_delay(USER_AGENT) or 0)
+        self._robots[origin] = rp
+        self._delays[origin] = float(rp.crawl_delay(USER_AGENT) or 0)
+        return rp
 
     def _allowed(self, url: str) -> bool:
-        assert self._robots is not None
-        return self._robots.can_fetch(USER_AGENT, url)
+        return self._robots_for(_origin(url)).can_fetch(USER_AGENT, url)
 
     def _fetch(self, url: str, first: bool = False) -> HttpResponse:
-        if not first and self._delay:
-            self._sleep(self._delay)
+        delay = self._delays.get(_origin(url), 0)
+        if not first and delay:
+            self._sleep(delay)
         resp = self._get(url)
         if resp.status in _STOP_STATUSES:
-            raise FetchError(
+            raise HttpStatusError(
                 f"{url}: {resp.status} ({_STOP_STATUSES[resp.status]}). "
-                "DrDeconstruct non aggira login, paywall o limiti anti-scraping."
+                "DrDeconstruct non aggira login, paywall o limiti anti-scraping.",
+                resp.status,
             )
         return resp
 
-    def fetch(self, url: str) -> FetchedSite:
+    def fetch_page(self, url: str) -> tuple[str, HttpResponse]:
+        """Scarica la pagina principale dopo i controlli; restituisce (URL finale, risposta)."""
         parts = urlsplit(url)
         if parts.scheme not in ("http", "https") or not parts.netloc:
             raise FetchError(f"URL non valido (serve http:// o https://): {url}")
-        origin = f"{parts.scheme}://{parts.netloc}"
-        self._load_robots(origin)
+        if not parts.path:
+            url += "/"
         if not self._allowed(url):
             raise RobotsDisallowedError(f"robots.txt del sito vieta l'accesso a {url}.")
-
         page = self._fetch(url, first=True)
         if page.status >= 400:
             raise FetchError(f"{url}: errore HTTP {page.status}.")
         final = page.url or url
         if urlsplit(final).netloc != parts.netloc:
             raise FetchError(f"{url} reindirizza a un altro sito ({final}): mi fermo.")
+        return final, page
+
+    def fetch_resource(self, url: str) -> HttpResponse | str:
+        """Una risorsa secondaria: la risposta, o il motivo per cui è stata saltata.
+
+        Un 429 ferma tutto; 401/403 o robots.txt fanno saltare solo questa risorsa.
+        """
+        try:
+            if not self._allowed(url):
+                return "vietato da robots.txt"
+            resp = self._fetch(url)
+        except HttpStatusError as exc:
+            if exc.status == 429:
+                raise
+            return f"HTTP {exc.status}, protetto"
+        except FetchError as exc:
+            return str(exc)
+        if resp.status >= 400:
+            return f"HTTP {resp.status}"
+        return resp
+
+    def fetch(self, url: str) -> FetchedSite:
+        final, page = self.fetch_page(url)
+        host = urlsplit(final).netloc
         site = FetchedSite(url=final, html=_decode(page))
 
         css_hrefs, js_srcs = linked_resources(site.html)
@@ -145,7 +198,7 @@ class SiteFetcher:
                 absolute = urljoin(final, ref)
                 if urlsplit(absolute).scheme not in ("http", "https"):
                     continue
-                if urlsplit(absolute).netloc != parts.netloc:
+                if urlsplit(absolute).netloc != host:
                     if kind == "js":
                         site.third_party_scripts.append(absolute)
                     else:
@@ -154,13 +207,10 @@ class SiteFetcher:
                 if budget <= 0:
                     site.skipped.append(f"{absolute} (limite di {self.max_resources} risorse)")
                     continue
-                if not self._allowed(absolute):
-                    site.skipped.append(f"{absolute} (vietato da robots.txt)")
-                    continue
-                resp = self._fetch(absolute)
+                resp = self.fetch_resource(absolute)
                 budget -= 1
-                if resp.status >= 400:
-                    site.skipped.append(f"{absolute} (HTTP {resp.status})")
+                if isinstance(resp, str):
+                    site.skipped.append(f"{absolute} ({resp})")
                     continue
                 target = site.stylesheets if kind == "css" else site.scripts
                 target.append(Resource(absolute, _decode(resp)))

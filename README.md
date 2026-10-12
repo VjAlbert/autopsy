@@ -33,6 +33,14 @@ spiegare al modello. Con `--scaffold CARTELLA` scrive uno scheletro
 `index.html` + `styles.css` + `script.js` + `NOTE.md` con testi e immagini
 segnaposto e una palette neutra, da riempire con i tuoi contenuti.
 
+Con `--mirror CARTELLA` (o il pulsante "Salva copia sul PC" nella GUI) salvi
+invece una **copia privata di una sola pagina**: HTML, fogli di stile, script,
+immagini e caratteri, con i collegamenti riscritti perché si apra col browser
+anche senza rete. Serve a studiarla e modificarla sul tuo PC; i link verso
+altre pagine restano online e i tracker vengono saltati. Nella cartella un
+file `LEGGIMI.txt` elenca cosa è stato saltato e ricorda che la copia non va
+ripubblicata.
+
 Limiti voluti:
 
 - rispetta `robots.txt` e il suo `Crawl-delay`; non aggira login, paywall o
@@ -91,6 +99,8 @@ drdec analyze uart.log --kind bus_log --backend ollama
 drdec web https://esempio.it --snapshot-only
 # Analisi completa e scheletro da riempire
 drdec web https://esempio.it --scaffold mio-sito/ -o analisi.json
+# Copia privata della pagina, da aprire offline e modificare
+drdec web https://esempio.it --mirror copia-studio/
 # Una pagina già salvata dal browser
 drdec analyze pagina.html --kind web_page
 ```
@@ -106,7 +116,9 @@ drdec-gui
 
 Finestra con tema scuro: una scheda per analizzare Software/Hardware (incolli o
 apri un file e ottieni il risultato), una per decompilare binari, una per
-studiare un sito web e salvarne lo scheletro, e una per i dispositivi collegati.
+studiare un sito web (analisi, copia privata della pagina, scheletro della tua
+versione: tutto con pulsanti, senza riga di comando) e una per i dispositivi
+collegati. Il motore IA si sceglie una volta sola, in alto, per tutte le schede.
 
 ## Eseguibile per Windows 10/11
 

@@ -287,7 +287,10 @@ def summarize_css(css: str) -> CssSummary:
             props[name] = value.strip()
     colors = [c for c, _ in Counter(m.lower() for m in _COLOR.findall(css)).most_common(12)]
     fonts = [
-        f for f, _ in Counter(m.strip().strip("'\"") for m in _FONT.findall(css)).most_common(6)
+        f
+        for f, _ in Counter(
+            m.replace('"', "").replace("'", "").strip() for m in _FONT.findall(css)
+        ).most_common(6)
     ]
     bps = set()
     for value, unit in _MEDIA.findall(css):

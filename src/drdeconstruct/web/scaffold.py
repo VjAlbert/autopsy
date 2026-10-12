@@ -12,6 +12,7 @@ import re
 from html import escape
 from pathlib import Path
 
+from drdeconstruct.web.extract import SiteSnapshot
 from drdeconstruct.web.schemas import UIComponent, WebAnalysis
 
 _LANDMARK_HINTS = {
@@ -155,6 +156,45 @@ def render_notes(analysis: WebAnalysis) -> str:
         f"## Accessibilità\n\n{bullets(analysis.accessibility)}\n\n"
         f"## Domande aperte\n\n{bullets(analysis.open_questions)}\n"
     )
+
+
+def render_report(snapshot: SiteSnapshot, analysis: WebAnalysis | None) -> str:
+    """Resoconto leggibile (Markdown) per chi non vuole leggere JSON."""
+
+    def bullets(items: list[str]) -> str:
+        return "\n".join(f"- {i}" for i in items) or "- nessuno"
+
+    tech = [f"{t.name} ({t.category})" for t in snapshot.technologies]
+    css = snapshot.css
+    parts = [f"# {snapshot.title or snapshot.url}\n\n{snapshot.url}\n"]
+    if analysis is not None:
+        sections = [f"**{s.name}**: {s.role}. Layout: {s.layout}" for s in analysis.sections]
+        stack = [f"{t.name}: {t.role} (sicurezza {t.confidence})" for t in analysis.tech_stack]
+        parts += [
+            f"## Cosa è la pagina\n\n{analysis.page_purpose}\n\n{analysis.layout_summary}\n",
+            f"## Sezioni, dall'alto in basso\n\n{bullets(sections)}\n",
+            render_notes(analysis).split("\n## ", 2)[-1].join(["## ", ""]),
+            f"## Tecnologie\n\n{bullets(stack)}\n",
+            f"## Comportamenti dinamici\n\n{bullets(analysis.interactions)}\n",
+        ]
+    else:
+        heads = [f"H{h.level} {h.text}" for h in snapshot.headings[:25]]
+        parts += [
+            "_Solo struttura: per la spiegazione completa togli la spunta "
+            '"Solo struttura" e analizza di nuovo._\n',
+            f"## Titoli delle sezioni\n\n{bullets(heads)}\n",
+            f"## Tecnologie rilevate\n\n{bullets(tech)}\n",
+        ]
+    parts += [
+        "## Stile osservato\n",
+        f"- Colori principali: {', '.join(css.colors[:8]) or 'nessuno'}",
+        f"- Caratteri: {', '.join(css.font_families[:4]) or 'nessuno'}",
+        f"- Punti di rottura (px): {', '.join(map(str, css.breakpoints_px)) or 'nessuno'}",
+        f"- Elementi grid/flex: {css.layout.get('grid', 0)}/{css.layout.get('flex', 0)}\n",
+    ]
+    if snapshot.skipped:
+        parts.append(f"## Risorse non scaricate\n\n{bullets(snapshot.skipped[:15])}\n")
+    return "\n".join(parts)
 
 
 def build_scaffold(

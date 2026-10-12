@@ -263,3 +263,120 @@ def test_cli_web_robots_error(monkeypatch, capsys):
     _patch_fetcher(monkeypatch, site(robots="User-agent: *\nDisallow: /\n"))
     assert cli.main(["web", "https://rossi.test/", "--snapshot-only"]) == 1
     assert "robots.txt" in capsys.readouterr().err
+
+
+# --- Copia locale di una pagina --------------------------------------------
+
+MIRROR_PAGE = """<!doctype html><html><head>
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'">
+<link rel="stylesheet" href="/s/site.css" integrity="sha384-x" crossorigin="anonymous">
+<link rel="icon" href="/favicon.ico"><link rel="canonical" href="/">
+<script src="https://cdn.lib.test/lib.js"></script>
+<script src="https://www.googletagmanager.com/gtm.js"></script>
+</head><body style="background:url('/img/bg.png')">
+<a href="/chi-siamo">Chi siamo</a><a href="/">Home</a>
+<img src="img/a.jpg" srcset="img/a.jpg 1x, img/a@2x.jpg 2x" alt="">
+<img src="/privata.png"><img src="/vietata/x.png">
+</body></html>"""
+
+
+def mirror_site(**extra) -> FakeWeb:
+    pages = {
+        "https://rossi.test/robots.txt": (200, "User-agent: *\nDisallow: /vietata/\n"),
+        "https://rossi.test/": (200, MIRROR_PAGE),
+        "https://rossi.test/s/site.css": (
+            200,
+            "@import 'base.css'; body{font-family:X} "
+            '@font-face{src:url(../f/x.woff2)} .h{background:url("/img/h.png")}',
+        ),
+        "https://rossi.test/s/base.css": (200, "p{color:red}"),
+        "https://rossi.test/f/x.woff2": (200, "FONT"),
+        "https://rossi.test/img/h.png": (200, "PNG"),
+        "https://rossi.test/img/bg.png": (200, "PNG"),
+        "https://rossi.test/img/a.jpg": (200, "JPG"),
+        "https://rossi.test/img/a@2x.jpg": (200, "JPG2"),
+        "https://rossi.test/favicon.ico": (200, "ICO"),
+        "https://rossi.test/privata.png": (403, ""),
+        "https://cdn.lib.test/robots.txt": (404, ""),
+        "https://cdn.lib.test/lib.js": (200, "console.log(1)"),
+    }
+    pages.update(extra)
+    return FakeWeb(pages)
+
+
+def test_mirror_saves_page_for_offline_use(tmp_path):
+    from drdeconstruct.web.mirror import PageMirror
+
+    web = mirror_site()
+    result = PageMirror(getter=web, sleep=lambda s: None).save("https://rossi.test/", tmp_path)
+    html = (tmp_path / "index.html").read_text()
+
+    assert 'href="assets/rossi.test/s/site.css"' in html
+    assert 'src="assets/cdn.lib.test/lib.js"' in html
+    assert "assets/rossi.test/img/a.jpg 1x, assets/rossi.test/img/a_2x.jpg 2x" in html
+    assert 'url("assets/rossi.test/img/bg.png")' in html
+    assert 'href="https://rossi.test/chi-siamo"' in html  # altre pagine: link online
+    assert 'href="index.html"' in html
+    assert "integrity" not in html and "crossorigin" not in html
+    assert "Content-Security-Policy" not in html
+
+    css = (tmp_path / "assets/rossi.test/s/site.css").read_text()
+    assert 'url("../f/x.woff2")' in css and '@import "base.css"' in css
+    assert (tmp_path / "assets/rossi.test/f/x.woff2").read_bytes() == b"FONT"
+    assert (tmp_path / "assets/rossi.test/s/base.css").exists()
+
+    # protetti, vietati e tracker non vengono scaricati
+    assert "https://rossi.test/vietata/x.png" not in web.requested
+    assert not any("googletagmanager" in u for u in web.requested)
+    assert "https://rossi.test/chi-siamo" not in web.requested
+    reasons = " ".join(result.skipped)
+    assert "403" in reasons and "robots" in reasons and "tracker" in reasons
+    assert "non ripubblicarla" in (tmp_path / "LEGGIMI.txt").read_text().lower()
+
+
+def test_mirror_refuses_non_empty_folder_and_robots(tmp_path):
+    from drdeconstruct.web.mirror import PageMirror
+
+    (tmp_path / "index.html").write_text("mio")
+    with pytest.raises(FileExistsError):
+        PageMirror(getter=mirror_site()).save("https://rossi.test/", tmp_path)
+    web = mirror_site(**{"https://rossi.test/robots.txt": (200, "User-agent: *\nDisallow: /\n")})
+    with pytest.raises(RobotsDisallowedError):
+        PageMirror(getter=web).save("https://rossi.test/", tmp_path / "nuova")
+
+
+def test_mirror_stops_on_rate_limit(tmp_path):
+    from drdeconstruct.web.mirror import PageMirror
+
+    web = mirror_site(**{"https://rossi.test/s/site.css": (429, "")})
+    with pytest.raises(FetchError, match="429"):
+        PageMirror(getter=web, sleep=lambda s: None).save("https://rossi.test/", tmp_path)
+
+
+def test_local_path_is_safe():
+    from drdeconstruct.web.mirror import local_path
+
+    assert local_path("https://a.test/../../etc/passwd") == "assets/a.test/etc/passwd.bin"
+    p = local_path("https://fonts.test/css2?family=Inter", "text/css; charset=utf-8")
+    assert p.startswith("assets/fonts.test/css2-") and p.endswith(".css")
+
+
+def test_cli_web_mirror(tmp_path, monkeypatch):
+    from drdeconstruct.web import mirror
+
+    real = mirror.PageMirror
+    monkeypatch.setattr(
+        mirror, "PageMirror", lambda **kw: real(getter=mirror_site(), sleep=lambda s: None, **kw)
+    )
+    assert cli.main(["web", "https://rossi.test/", "--mirror", str(tmp_path / "copia")]) == 0
+    assert (tmp_path / "copia" / "index.html").exists()
+
+
+def test_report_is_readable():
+    from drdeconstruct.web.scaffold import render_report
+
+    snap = build_snapshot("https://rossi.test/", PAGE, stylesheets=[CSS])
+    only = render_report(snap, None)
+    assert "Solo struttura" in only and "Next.js" in only and "768" in only
+    full = render_report(snap, WebAnalysis.model_validate(WEB_PAYLOAD))
+    assert "Griglia schede" in full and "Da non riutilizzare" in full and "{" not in full

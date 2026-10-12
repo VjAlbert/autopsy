@@ -21,6 +21,7 @@ from drdeconstruct.software.analyzer import SoftwareAnalyzer
 from drdeconstruct.web.analyzer import WebAnalyzer
 from drdeconstruct.web.extract import build_snapshot
 from drdeconstruct.web.fetcher import SiteFetcher
+from drdeconstruct.web.mirror import mirror_page
 from drdeconstruct.web.scaffold import write_scaffold
 
 
@@ -103,6 +104,12 @@ def _parser() -> argparse.ArgumentParser:
         "--snapshot-only", action="store_true", help="Solo mappa strutturale, senza modello"
     )
     w.add_argument("--scaffold", type=Path, metavar="CARTELLA", help="Scrivi qui lo scheletro")
+    w.add_argument(
+        "--mirror",
+        type=Path,
+        metavar="CARTELLA",
+        help="Salva qui una copia privata della sola pagina, da aprire offline e modificare",
+    )
     w.add_argument("--max-resources", type=int, default=20, help="Massimo CSS/JS da scaricare")
     _add_engine_args(w)
     return p
@@ -186,6 +193,12 @@ def run_web(url: str, settings: Settings | None, context: str = "", max_resource
 
 
 def _cmd_web(args: argparse.Namespace) -> str:
+    if args.mirror:
+        result = mirror_page(args.url, args.mirror, progress=lambda m: print(m, file=sys.stderr))
+        return (
+            f"Copia privata salvata in {result.index} ({len(result.saved)} file, "
+            f"{len(result.skipped)} saltati: vedi LEGGIMI.txt). Non ripubblicarla."
+        )
     if args.snapshot_only and args.scaffold:
         raise DrDeconstructError("--scaffold richiede il modello: togli --snapshot-only.")
     print(f"[*] Raccolgo la struttura di {args.url}…", file=sys.stderr)
