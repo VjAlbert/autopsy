@@ -57,6 +57,8 @@ QFrame#card QLabel#stepNumber {{
 }}
 QLabel#stepTitle {{ font-size: 14px; font-weight: 700; }}
 
+QFrame#card QStackedWidget, QFrame#card QStackedWidget > QWidget {{ background: transparent; }}
+
 /* Schede della schermata iniziale */
 QPushButton#tile {{
     background: {SURFACE}; border: 1px solid {BORDER}; border-radius: 12px;
