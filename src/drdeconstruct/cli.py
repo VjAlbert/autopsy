@@ -1,4 +1,5 @@
 """Riga di comando: `drdec analyze` per i testi, `drdec decompile` per i binari,
+`drdec web` per studiare il front-end di un sito,
 `drdec home` per i dispositivi smart home (Xiaomi, Aqara, Tapo)."""
 
 from __future__ import annotations
@@ -27,12 +28,21 @@ from drdeconstruct.software.symbols import (
     build_symbol_map,
     hints_context,
 )
+from drdeconstruct.web.analyzer import WebAnalyzer
+from drdeconstruct.web.extract import build_snapshot
+from drdeconstruct.web.fetcher import SiteFetcher
+from drdeconstruct.web.mirror import mirror_page
+from drdeconstruct.web.scaffold import write_scaffold
 
 
 def build_engine(settings: Settings) -> tuple[LLMBackend, Orchestrator]:
     llm = make_backend(settings)
     orch = Orchestrator(
-        {Domain.SOFTWARE: SoftwareAnalyzer(llm), Domain.HARDWARE: HardwareAnalyzer(llm)}
+        {
+            Domain.SOFTWARE: SoftwareAnalyzer(llm),
+            Domain.HARDWARE: HardwareAnalyzer(llm),
+            Domain.WEB: WebAnalyzer(llm),
+        }
     )
     return llm, orch
 
@@ -157,6 +167,29 @@ def _parser() -> argparse.ArgumentParser:
     )
     _add_scaffold_lang(d)
     _add_engine_args(d)
+
+    w = sub.add_parser(
+        "web",
+        help="Studia il front-end di un sito pubblico e genera uno scheletro da reinterpretare.",
+        description=(
+            "Scarica solo HTML, CSS e JS pubblici dello stesso sito, rispettando robots.txt; "
+            "non aggira login né paywall. Lo scheletro non contiene testi, immagini o marchi "
+            "del sito: è una base per la TUA versione, non una copia da ripubblicare."
+        ),
+    )
+    w.add_argument("url")
+    w.add_argument(
+        "--snapshot-only", action="store_true", help="Solo mappa strutturale, senza modello"
+    )
+    w.add_argument("--scaffold", type=Path, metavar="CARTELLA", help="Scrivi qui lo scheletro")
+    w.add_argument(
+        "--mirror",
+        type=Path,
+        metavar="CARTELLA",
+        help="Salva qui una copia privata della sola pagina, da aprire offline e modificare",
+    )
+    w.add_argument("--max-resources", type=int, default=20, help="Massimo CSS/JS da scaricare")
+    _add_engine_args(w)
 
     e = sub.add_parser(
         "eval",
@@ -342,6 +375,46 @@ def _cmd_decompile(args: argparse.Namespace) -> str:
     )
 
 
+def run_web(url: str, settings: Settings | None, context: str = "", max_resources: int = 20):
+    """Scarica, mappa e (se `settings` c'è) fa spiegare la pagina. Usato da CLI e GUI."""
+    site = SiteFetcher(max_resources=max_resources).fetch(url)
+    snapshot = build_snapshot(
+        site.url,
+        site.html,
+        stylesheets=[r.text for r in site.stylesheets],
+        scripts=[r.text for r in site.scripts],
+        third_party_scripts=site.third_party_scripts,
+        skipped=site.skipped,
+    )
+    if settings is None:
+        return snapshot, None
+    return snapshot, WebAnalyzer(make_backend(settings)).analyze_snapshot(snapshot, context)
+
+
+def _cmd_web(args: argparse.Namespace) -> str:
+    if args.mirror:
+        result = mirror_page(args.url, args.mirror, progress=lambda m: print(m, file=sys.stderr))
+        return (
+            f"Copia privata salvata in {result.index} ({len(result.saved)} file, "
+            f"{len(result.skipped)} saltati: vedi LEGGIMI.txt). Non ripubblicarla."
+        )
+    if args.snapshot_only and args.scaffold:
+        raise DrDeconstructError("--scaffold richiede il modello: togli --snapshot-only.")
+    print(f"[*] Raccolgo la struttura di {args.url}…", file=sys.stderr)
+    settings = None if args.snapshot_only else _settings(args)
+    snapshot, analysis = run_web(args.url, settings, args.context, args.max_resources)
+    if analysis is None:
+        return snapshot.model_dump_json(indent=2)
+    if args.scaffold:
+        for path in write_scaffold(analysis, args.scaffold, snapshot.css.breakpoints_px):
+            print(f"[*] Scheletro: {path}", file=sys.stderr)
+    return json.dumps(
+        {"snapshot": snapshot.model_dump(), "analysis": analysis.model_dump()},
+        indent=2,
+        ensure_ascii=False,
+    )
+
+
 def _cmd_eval(args: argparse.Namespace) -> str:
     from drdeconstruct.evaluation import load_cases, report, run_case
 
@@ -425,6 +498,7 @@ def main(argv: list[str] | None = None) -> int:
         "analyze": _cmd_analyze,
         "scaffold": _cmd_scaffold,
         "decompile": _cmd_decompile,
+        "web": _cmd_web,
         "eval": _cmd_eval,
         "home": _cmd_home,
     }

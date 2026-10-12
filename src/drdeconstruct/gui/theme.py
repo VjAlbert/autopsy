@@ -21,6 +21,11 @@ QTextEdit, QPlainTextEdit, QLineEdit, QComboBox, QListWidget {
     background: #0f1115; border: 1px solid #2a2d36; border-radius: 8px; padding: 6px;
     selection-background-color: #2e7d6b;
 }
+QCheckBox::indicator {
+    width: 16px; height: 16px; border: 1px solid #5b616e; border-radius: 4px;
+    background: #0f1115;
+}
+QCheckBox::indicator:checked { background: #2e7d6b; border-color: #2e7d6b; }
 QLabel#heading { font-size: 16px; font-weight: 700; }
 QLabel#hint { color: #8b909b; }
 QLabel#step { font-weight: 700; color: #6fd1b9; margin-top: 6px; }

@@ -16,15 +16,59 @@ def app():
     yield instance
 
 
+@pytest.fixture(autouse=True)
+def _dispose_widgets(request):
+    """Distrugge le finestre dei test nel thread principale.
+
+    Le finestre restano vive in cicli di riferimenti (lambda collegate ai
+    segnali); se il garbage collector le liberasse più tardi dentro il thread
+    di lavoro di un altro test, Qt andrebbe in crash (segmentation fault).
+    """
+    yield
+    if "app" not in request.fixturenames:
+        return
+    import gc
+
+    from PySide6.QtCore import QCoreApplication, QEvent
+    from PySide6.QtWidgets import QApplication
+
+    for widget in QApplication.topLevelWidgets():
+        widget.close()
+        widget.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    gc.collect()
+
+
 def test_main_window_builds(app):
     from drdeconstruct.config import Settings
     from drdeconstruct.gui.main_window import MainWindow
 
     win = MainWindow(Settings(backend="ollama"))
     assert win.windowTitle() == "DrDeconstruct"
-    assert win.centralWidget().count() == 6
-    assert win.backend_box.currentText() == "ollama"
+    assert win.tabs.count() == 7
+    assert win.backend_box.currentData() == "ollama"
     assert win.binary_edit.text() == ""
+    assert not win.scaffold_btn.isEnabled()
+    assert win.mirror_btn.isEnabled()
+    win.close()
+
+
+def test_web_tab_shows_readable_report(app, monkeypatch, tmp_path):
+    from drdeconstruct.config import Settings
+    from drdeconstruct.gui.main_window import MainWindow
+    from drdeconstruct.web.extract import build_snapshot
+    from drdeconstruct.web.schemas import WebAnalysis
+    from tests.test_web import PAGE, WEB_PAYLOAD
+
+    win = MainWindow(Settings(backend="ollama"))
+    snap = build_snapshot("https://rossi.test/", PAGE)
+    win._show_web((snap, WebAnalysis.model_validate(WEB_PAYLOAD)))
+    text = win.web_view.toPlainText()
+    assert "Griglia schede" in text and '"snapshot"' not in text
+    assert win.scaffold_btn.isEnabled() and win.save_json_btn.isEnabled()
+
+    win._show_web((snap, None))
+    assert not win.scaffold_btn.isEnabled()
     win.close()
 
 

@@ -1,11 +1,13 @@
-"""Finestra principale di DrDeconstruct: schede Software, Hardware, Dispositivi, Casa smart."""
+"""Finestra principale: schede Software/Hardware, Decompila, Sito web, Dispositivi,
+Casa smart."""
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QUrl
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -25,11 +27,18 @@ from PySide6.QtWidgets import (
 )
 
 from drdeconstruct.config import BACKENDS, Settings
+from drdeconstruct.core.errors import BackendError
 from drdeconstruct.core.types import AnalysisRequest, ArtifactKind
 from drdeconstruct.gui.scaffold_tab import ScaffoldTab
 from drdeconstruct.gui.smarthome_tab import SmartHomeTab
 from drdeconstruct.gui.theme import DARK_QSS
 from drdeconstruct.gui.workers import Task
+
+ENGINE_LABELS = {
+    "claude-code": "Claude (il tuo abbonamento claude.ai)",
+    "ollama": "Ollama (sul tuo PC, gratis, serve una buona GPU)",
+    "api": "API Anthropic (a consumo, serve una chiave)",
+}
 
 
 class MainWindow(QMainWindow):
@@ -41,16 +50,35 @@ class MainWindow(QMainWindow):
         self.resize(1040, 720)
         self.setStyleSheet(DARK_QSS)
 
-        tabs = QTabWidget()
-        tabs.addTab(self._build_analysis_tab(), "Software / Hardware")
-        tabs.addTab(self._build_decompile_tab(), "Decompila binario")
+        engine_row = QHBoxLayout()
+        self.backend_box = QComboBox()
+        for value in BACKENDS:
+            self.backend_box.addItem(ENGINE_LABELS.get(value, value), value)
+        self.backend_box.setCurrentIndex(max(self.backend_box.findData(self.settings.backend), 0))
+        self.backend_box.setToolTip(
+            "Il motore di intelligenza artificiale che spiega i risultati. "
+            "Vale per tutte le schede."
+        )
+        engine_row.addWidget(QLabel("Motore IA:"))
+        engine_row.addWidget(self.backend_box)
+        engine_row.addStretch()
+
+        self.tabs = QTabWidget()
+        self.tabs.addTab(self._build_analysis_tab(), "Software / Hardware")
+        self.tabs.addTab(self._build_decompile_tab(), "Decompila binario")
         self.scaffold_tab = ScaffoldTab(self.settings, self.statusBar())
-        tabs.addTab(self.scaffold_tab, "Scheletro di codice")
-        tabs.addTab(self._build_devices_tab(), "Dispositivi")
+        self.tabs.addTab(self.scaffold_tab, "Scheletro di codice")
+        self.tabs.addTab(self._build_web_tab(), "Sito web")
+        self.tabs.addTab(self._build_devices_tab(), "Dispositivi")
         self.smarthome_tab = SmartHomeTab(self._start, self._current_settings)
-        tabs.addTab(self.smarthome_tab, "Casa smart")
-        tabs.addTab(self._build_quality_tab(), "Verifica qualità")
-        self.setCentralWidget(tabs)
+        self.tabs.addTab(self.smarthome_tab, "Casa smart")
+        self.tabs.addTab(self._build_quality_tab(), "Verifica qualità")
+
+        central = QWidget()
+        outer = QVBoxLayout(central)
+        outer.addLayout(engine_row)
+        outer.addWidget(self.tabs, 1)
+        self.setCentralWidget(central)
         self.statusBar().showMessage("Pronto")
 
     # --- Scheda analisi ---------------------------------------------------
@@ -59,15 +87,10 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(w)
 
         row = QHBoxLayout()
-        self.backend_box = QComboBox()
-        self.backend_box.addItems(BACKENDS)
-        self.backend_box.setCurrentText(self.settings.backend)
         self.kind_box = QComboBox()
         self.kind_box.addItems([k.value for k in ArtifactKind])
         self.arch_edit = QLineEdit()
         self.arch_edit.setPlaceholderText("architettura (es. mips32el)")
-        row.addWidget(QLabel("Motore:"))
-        row.addWidget(self.backend_box)
         row.addWidget(QLabel("Tipo:"))
         row.addWidget(self.kind_box)
         row.addWidget(self.arch_edit)
@@ -109,7 +132,7 @@ class MainWindow(QMainWindow):
         if not content:
             QMessageBox.warning(self, "Manca l'input", "Incolla o apri qualcosa da analizzare.")
             return
-        settings = replace(self.settings, backend=self.backend_box.currentText())
+        settings = replace(self.settings, backend=self._backend())
         kind = ArtifactKind(self.kind_box.currentText())
         req = AnalysisRequest(
             content=content,
@@ -194,7 +217,7 @@ class MainWindow(QMainWindow):
         if not path:
             QMessageBox.warning(self, "Manca il file", "Scegli un file binario.")
             return
-        settings = replace(self.settings, backend=self.backend_box.currentText())
+        settings = replace(self.settings, backend=self._backend())
         processor = self.proc_edit.text().strip() or None
         analyze = self.analyze_chk.isChecked()
 
@@ -215,6 +238,194 @@ class MainWindow(QMainWindow):
             )
 
         self._start(job, on_done=self.decompile_view.setPlainText, busy="Ghidra al lavoro…")
+
+    # --- Scheda sito web --------------------------------------------------
+    def _build_web_tab(self) -> QWidget:
+        w = QWidget()
+        layout = QVBoxLayout(w)
+        layout.addWidget(self._heading("Studia un sito web"))
+        layout.addWidget(
+            self._hint(
+                "1. Scrivi l'indirizzo della pagina.\n"
+                '2. Premi "Analizza" per capire come è fatta, oppure "Salva copia sul PC" '
+                "per averla in una cartella e modificarla.\n"
+                "3. Dopo l'analisi, salva lo scheletro pulito per costruire la tua versione.\n\n"
+                "Si scaricano solo i file pubblici, rispettando robots.txt; login e paywall "
+                "non vengono aggirati. La copia è privata: non ripubblicarla. Per un sito tuo "
+                "usa lo scheletro e contenuti tuoi."
+            )
+        )
+
+        row = QHBoxLayout()
+        self.url_edit = QLineEdit()
+        self.url_edit.setPlaceholderText("Indirizzo della pagina, es. www.esempio.it")
+        self.url_edit.returnPressed.connect(self._run_web)
+        row.addWidget(self.url_edit, 1)
+        layout.addLayout(row)
+
+        opts = QHBoxLayout()
+        self.web_struct_only = QCheckBox("Solo struttura, senza IA (veloce e gratis)")
+        self.web_btn = QPushButton("Analizza")
+        self.web_btn.setToolTip("Spiega sezioni, componenti, stile e tecnologie della pagina.")
+        self.web_btn.clicked.connect(self._run_web)
+        self.mirror_btn = QPushButton("Salva copia sul PC…")
+        self.mirror_btn.setToolTip(
+            "Scarica questa sola pagina con immagini, stili e caratteri in una cartella: "
+            "la apri col browser anche senza internet e la modifichi per studiarla."
+        )
+        self.mirror_btn.clicked.connect(self._run_mirror)
+        opts.addWidget(self.web_struct_only)
+        opts.addStretch()
+        opts.addWidget(self.web_btn)
+        opts.addWidget(self.mirror_btn)
+        layout.addLayout(opts)
+
+        self.web_view = QTextEdit()
+        self.web_view.setReadOnly(True)
+        self.web_view.setPlaceholderText("Qui compare la spiegazione della pagina.")
+        layout.addWidget(self.web_view, 1)
+
+        out = QHBoxLayout()
+        self.scaffold_btn = QPushButton("Salva scheletro della mia versione…")
+        self.scaffold_btn.setToolTip(
+            "Crea index.html, styles.css, script.js e NOTE.md con la struttura della pagina "
+            "e testi segnaposto da sostituire con i tuoi. Richiede l'analisi con l'IA."
+        )
+        self.scaffold_btn.setEnabled(False)
+        self.scaffold_btn.clicked.connect(self._save_scaffold)
+        self.save_json_btn = QPushButton("Salva analisi (JSON)…")
+        self.save_json_btn.setEnabled(False)
+        self.save_json_btn.clicked.connect(self._save_web_json)
+        self.open_folder_btn = QPushButton("Apri cartella")
+        self.open_folder_btn.setEnabled(False)
+        self.open_folder_btn.clicked.connect(self._open_last_folder)
+        out.addWidget(self.scaffold_btn)
+        out.addWidget(self.save_json_btn)
+        out.addStretch()
+        out.addWidget(self.open_folder_btn)
+        layout.addLayout(out)
+        self._web_result = None
+        self._last_folder: Path | None = None
+        return w
+
+    def _web_url(self) -> str | None:
+        url = self.url_edit.text().strip()
+        if not url:
+            QMessageBox.information(
+                self, "Manca l'indirizzo", "Scrivi l'indirizzo della pagina, es. www.esempio.it"
+            )
+            return None
+        return url if "://" in url else "https://" + url
+
+    def _run_web(self) -> None:
+        from dataclasses import replace
+
+        from drdeconstruct.cli import run_web
+
+        url = self._web_url()
+        if not url:
+            return
+        settings = (
+            None
+            if self.web_struct_only.isChecked()
+            else replace(self.settings, backend=self._backend())
+        )
+
+        def job():
+            try:
+                return run_web(url, settings)
+            except BackendError as exc:
+                raise BackendError(
+                    f"{exc}\n\nSuggerimento: scegli un altro motore in alto, oppure spunta "
+                    '"Solo struttura, senza IA" per avere comunque la mappa della pagina.'
+                ) from exc
+
+        self.scaffold_btn.setEnabled(False)
+        self.save_json_btn.setEnabled(False)
+        busy = "Studio la pagina…" if settings is None else "Studio la pagina e la spiego con l'IA…"
+        self._start(job, on_done=self._show_web, busy=busy)
+
+    def _show_web(self, result) -> None:
+        from drdeconstruct.web.scaffold import render_report
+
+        snapshot, analysis = result
+        self._web_result = result
+        self.web_view.setMarkdown(render_report(snapshot, analysis))
+        self.scaffold_btn.setEnabled(analysis is not None)
+        self.save_json_btn.setEnabled(True)
+
+    def _save_web_json(self) -> None:
+        if not self._web_result:
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Salva analisi", "analisi.json", "JSON (*.json)"
+        )
+        if not path:
+            return
+        snapshot, analysis = self._web_result
+        payload = {"snapshot": snapshot.model_dump()}
+        if analysis is not None:
+            payload["analysis"] = analysis.model_dump()
+        Path(path).write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+        self.statusBar().showMessage(f"Analisi salvata in {path}")
+
+    def _save_scaffold(self) -> None:
+        from drdeconstruct.web.scaffold import write_scaffold
+
+        if not self._web_result or self._web_result[1] is None:
+            return
+        folder = QFileDialog.getExistingDirectory(
+            self, "Scegli una cartella vuota per lo scheletro"
+        )
+        if not folder:
+            return
+        snapshot, analysis = self._web_result
+        try:
+            paths = write_scaffold(analysis, Path(folder), snapshot.css.breakpoints_px)
+        except OSError as exc:
+            QMessageBox.warning(self, "Non salvato", str(exc))
+            return
+        self._done_in_folder(
+            Path(folder),
+            f"Creati {len(paths)} file. Apri index.html con il browser e NOTE.md per il piano "
+            "di lavoro; sostituisci i testi tra parentesi quadre con i tuoi.",
+        )
+
+    def _run_mirror(self) -> None:
+        from drdeconstruct.web.mirror import mirror_page
+
+        url = self._web_url()
+        if not url:
+            return
+        folder = QFileDialog.getExistingDirectory(self, "Scegli una cartella vuota per la copia")
+        if not folder:
+            return
+        target = Path(folder)
+
+        def done(result) -> None:
+            self._done_in_folder(
+                target,
+                f"Copia salvata: {len(result.saved)} file, {len(result.skipped)} saltati "
+                "(elenco in LEGGIMI.txt). Apri index.html con il browser per vederla e "
+                "modificarla. È una copia privata per studio: non ripubblicarla.",
+            )
+
+        self._start(
+            lambda progress: mirror_page(url, target, progress=progress),
+            on_done=done,
+            busy="Salvo la pagina…",
+            with_progress=True,
+        )
+
+    def _done_in_folder(self, folder: Path, message: str) -> None:
+        self._last_folder = folder
+        self.open_folder_btn.setEnabled(True)
+        self.statusBar().showMessage(f"Salvato in {folder}")
+        QMessageBox.information(self, "Fatto", message)
+
+    def _open_last_folder(self) -> None:
+        if self._last_folder:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(self._last_folder)))
 
     # --- Scheda dispositivi ----------------------------------------------
     def _build_devices_tab(self) -> QWidget:
@@ -323,24 +534,29 @@ class MainWindow(QMainWindow):
         self._start(job, on_done=self.quality_view.setPlainText, busy="Verifica in corso…")
 
     # --- Infrastruttura ---------------------------------------------------
+    def _backend(self) -> str:
+        return self.backend_box.currentData() or self.settings.backend
+
     def _current_settings(self) -> Settings:
         from dataclasses import replace
 
-        return replace(self.settings, backend=self.backend_box.currentText())
+        return replace(self.settings, backend=self._backend())
 
-    def _start(self, fn, on_done, busy: str) -> None:
+    def _start(self, fn, on_done, busy: str, with_progress: bool = False) -> None:
         if self._task and self._task.isRunning():
+            self.statusBar().showMessage("Aspetta: un'operazione è ancora in corso.")
             return
         self.run_btn.setEnabled(False) if hasattr(self, "run_btn") else None
         self.statusBar().showMessage(busy)
-        self._task = Task(fn, self)
+        self._task = Task(fn, self, with_report=with_progress)
+        self._task.progress.connect(lambda msg: self.statusBar().showMessage(str(msg)))
         self._task.done.connect(lambda r: self._finish(on_done, r))
         self._task.failed.connect(self._fail)
         self._task.start()
 
     def _finish(self, on_done, result) -> None:
-        on_done(result)
         self.statusBar().showMessage("Fatto")
+        on_done(result)
         if hasattr(self, "run_btn"):
             self.run_btn.setEnabled(True)
 

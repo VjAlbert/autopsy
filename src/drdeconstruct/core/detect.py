@@ -21,6 +21,7 @@ _ASM_HINTS = re.compile(
 )
 _BUS_HINTS = re.compile(r"\b(uart|spi|i2c|can|tx|rx|miso|mosi|sda|scl|0x[0-9a-fA-F]{2})\b", re.I)
 _REG_HINTS = re.compile(r"\b(reg|register|base|offset|0x[0-9a-fA-F]{8})\b", re.I)
+_HTML_START = re.compile(r"^\s*(?:<!--.*?-->\s*)*<(?:!doctype\s+html|html)\b", re.I | re.S)
 _HEXDUMP = re.compile(r"^[0-9a-fA-F]{6,8}[:\s]+(?:[0-9a-fA-F]{2}\s+){8,}", re.MULTILINE)
 
 
@@ -42,6 +43,8 @@ def guess(content: str, source_name: str | None = None) -> Guess:
         return Guess(ArtifactKind.PSEUDOCODE_C, 0.9)
     if name.endswith((".s", ".asm")):
         return Guess(ArtifactKind.ASSEMBLY, 0.9)
+    if name.endswith((".html", ".htm")) or _HTML_START.match(content):
+        return Guess(ArtifactKind.WEB_PAGE, 0.9)
 
     scores = {
         ArtifactKind.PSEUDOCODE_C: len(_C_HINTS.findall(content)) / lines

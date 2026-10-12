@@ -19,3 +19,11 @@ class RefusalError(BackendError):
 
 class SafetyError(DrDeconstructError):
     """Un'operazione hardware è stata bloccata da un controllo di sicurezza."""
+
+
+class FetchError(DrDeconstructError):
+    """Una risorsa web non è raggiungibile o la raccolta deve fermarsi."""
+
+
+class RobotsDisallowedError(FetchError):
+    """robots.txt del sito vieta l'accesso alla risorsa richiesta."""

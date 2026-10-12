@@ -9,6 +9,7 @@ from enum import Enum
 class Domain(str, Enum):
     SOFTWARE = "software"
     HARDWARE = "hardware"
+    WEB = "web"
 
 
 class ArtifactKind(str, Enum):
@@ -17,11 +18,14 @@ class ArtifactKind(str, Enum):
     FLASH_DUMP = "flash_dump"
     REGISTER_MAP = "register_map"
     BUS_LOG = "bus_log"
+    WEB_PAGE = "web_page"
 
     @property
     def domain(self) -> Domain:
         if self in (ArtifactKind.PSEUDOCODE_C, ArtifactKind.ASSEMBLY):
             return Domain.SOFTWARE
+        if self is ArtifactKind.WEB_PAGE:
+            return Domain.WEB
         return Domain.HARDWARE
 
 
