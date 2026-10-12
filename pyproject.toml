@@ -46,6 +46,9 @@ drdec-gui = "drdeconstruct.gui.app:main"
 [tool.hatch.build.targets.wheel]
 packages = ["src/drdeconstruct"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"src/drdeconstruct/preprocess/ghidra_scripts" = "drdeconstruct/preprocess/ghidra_scripts"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]

@@ -22,6 +22,7 @@ def test_main_window_builds(app):
 
     win = MainWindow(Settings(backend="ollama"))
     assert win.windowTitle() == "DrDeconstruct"
-    assert win.centralWidget().count() == 2
+    assert win.centralWidget().count() == 3
     assert win.backend_box.currentText() == "ollama"
+    assert win.binary_edit.text() == ""
     win.close()

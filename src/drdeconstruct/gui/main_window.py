@@ -40,6 +40,7 @@ class MainWindow(QMainWindow):
 
         tabs = QTabWidget()
         tabs.addTab(self._build_analysis_tab(), "Software / Hardware")
+        tabs.addTab(self._build_decompile_tab(), "Decompila binario")
         tabs.addTab(self._build_devices_tab(), "Dispositivi")
         self.setCentralWidget(tabs)
         self.statusBar().showMessage("Pronto")
@@ -114,6 +115,82 @@ class MainWindow(QMainWindow):
             ),
             busy="Analisi in corso…",
         )
+
+    # --- Scheda decompilazione -------------------------------------------
+    def _build_decompile_tab(self) -> QWidget:
+        w = QWidget()
+        layout = QVBoxLayout(w)
+        layout.addWidget(self._heading("Decompila un file binario con Ghidra"))
+        layout.addWidget(
+            self._hint(
+                "Scegli un eseguibile o un firmware. Ghidra lo decompila e il risultato può "
+                "essere analizzato dal modello. Per i firmware grezzi indica il processore "
+                "(es. MIPS:LE:32:default). Richiede Ghidra installato (GHIDRA_INSTALL_DIR)."
+            )
+        )
+
+        row = QHBoxLayout()
+        self.binary_edit = QLineEdit()
+        self.binary_edit.setPlaceholderText("percorso del file binario")
+        pick = QPushButton("Scegli…")
+        pick.clicked.connect(self._pick_binary)
+        row.addWidget(self.binary_edit)
+        row.addWidget(pick)
+        layout.addLayout(row)
+
+        opts = QHBoxLayout()
+        self.proc_edit = QLineEdit()
+        self.proc_edit.setPlaceholderText("processore (solo firmware grezzi)")
+        self.analyze_chk = QPushButton("Analizza con il modello")
+        self.analyze_chk.setCheckable(True)
+        opts.addWidget(QLabel("Processore:"))
+        opts.addWidget(self.proc_edit)
+        opts.addWidget(self.analyze_chk)
+        layout.addLayout(opts)
+
+        self.decompile_btn = QPushButton("Decompila")
+        self.decompile_btn.clicked.connect(self._run_decompile)
+        layout.addWidget(self.decompile_btn)
+
+        self.decompile_view = QTextEdit()
+        self.decompile_view.setReadOnly(True)
+        layout.addWidget(self.decompile_view, 1)
+        return w
+
+    def _pick_binary(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(self, "Scegli un binario")
+        if path:
+            self.binary_edit.setText(path)
+
+    def _run_decompile(self) -> None:
+        from dataclasses import replace
+
+        from drdeconstruct.preprocess.ghidra import GhidraExporter
+
+        path = self.binary_edit.text().strip()
+        if not path:
+            QMessageBox.warning(self, "Manca il file", "Scegli un file binario.")
+            return
+        settings = replace(self.settings, backend=self.backend_box.currentText())
+        processor = self.proc_edit.text().strip() or None
+        analyze = self.analyze_chk.isChecked()
+
+        def job():
+            program = GhidraExporter().export(path, processor=processor)
+            if not analyze:
+                return program.as_c_source()
+            from drdeconstruct.cli import analyze_functions, build_orchestrator
+            from drdeconstruct.core.types import AnalysisRequest
+
+            base = AnalysisRequest(content="", kind=ArtifactKind.PSEUDOCODE_C, arch=program.arch)
+            funcs = [(f"{f.name}@{f.entry}", f.code) for f in program.functions]
+            return json.dumps(
+                analyze_functions(build_orchestrator(settings), base, funcs),
+                indent=2,
+                ensure_ascii=False,
+            )
+
+        self._start(job, on_done=self.decompile_view.setPlainText, busy="Ghidra al lavoro…")
 
     # --- Scheda dispositivi ----------------------------------------------
     def _build_devices_tab(self) -> QWidget:

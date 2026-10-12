@@ -1,4 +1,4 @@
-"""Riga di comando: `drdec analyze <file> --kind pseudocode_c`."""
+"""Riga di comando: `drdec analyze` per i testi, `drdec decompile` per i binari."""
 
 from __future__ import annotations
 
@@ -9,12 +9,13 @@ from dataclasses import replace
 from pathlib import Path
 
 from drdeconstruct.config import BACKENDS, Settings
-from drdeconstruct.core.errors import DrDeconstructError
+from drdeconstruct.core.errors import BackendError, DrDeconstructError
 from drdeconstruct.core.orchestrator import Orchestrator
 from drdeconstruct.core.types import AnalysisRequest, ArtifactKind, Domain
 from drdeconstruct.hardware.analyzer import HardwareAnalyzer
 from drdeconstruct.llm.factory import make_backend
 from drdeconstruct.preprocess.chunker import split_c_functions
+from drdeconstruct.preprocess.ghidra import GhidraExporter
 from drdeconstruct.software.analyzer import SoftwareAnalyzer
 
 
@@ -23,6 +24,29 @@ def build_orchestrator(settings: Settings) -> Orchestrator:
     return Orchestrator(
         {Domain.SOFTWARE: SoftwareAnalyzer(llm), Domain.HARDWARE: HardwareAnalyzer(llm)}
     )
+
+
+def analyze_functions(
+    orch: Orchestrator, base: AnalysisRequest, functions: list[tuple[str, str]]
+) -> dict[str, dict]:
+    """Analizza le funzioni una alla volta; un errore su una non ferma le altre."""
+    results: dict[str, dict] = {}
+    for i, (name, code) in enumerate(functions, 1):
+        print(f"[{i}/{len(functions)}] {name}", file=sys.stderr)
+        req = replace(base, content=code, kind=base.kind or ArtifactKind.PSEUDOCODE_C)
+        try:
+            results[name] = orch.run(req).model_dump()
+        except BackendError as exc:
+            print(f"    errore: {exc}", file=sys.stderr)
+            results[name] = {"error": str(exc)}
+    return results
+
+
+def _add_engine_args(p: argparse.ArgumentParser) -> None:
+    p.add_argument("--backend", choices=BACKENDS, help="Motore LLM (default da DRDEC_BACKEND)")
+    p.add_argument("--model")
+    p.add_argument("--context", default="", help="Cosa sai già del target")
+    p.add_argument("-o", "--output", type=Path, help="Salva il risultato qui")
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -34,51 +58,103 @@ def _parser() -> argparse.ArgumentParser:
     a.add_argument("--domain", choices=[d.value for d in Domain])
     a.add_argument("--kind", choices=[k.value for k in ArtifactKind])
     a.add_argument("--arch", help="Architettura, es. mips32el, armv7, x86")
-    a.add_argument("--context", default="", help="Cosa sai già del target")
-    a.add_argument("--backend", choices=BACKENDS, help="Motore LLM (default da DRDEC_BACKEND)")
-    a.add_argument("--model")
     a.add_argument("--split", action="store_true", help="Analizza ogni funzione C separatamente")
-    a.add_argument("-o", "--output", type=Path, help="Salva il risultato JSON qui")
+    _add_engine_args(a)
+
+    d = sub.add_parser(
+        "decompile", help="Decompila un binario con Ghidra e, a richiesta, analizza le funzioni."
+    )
+    d.add_argument("binary", type=Path)
+    d.add_argument("--ghidra", help="Cartella di installazione di Ghidra (o GHIDRA_INSTALL_DIR)")
+    d.add_argument("--processor", help="Per firmware grezzi, es. MIPS:LE:32:default o ARM:LE:32:v7")
+    d.add_argument(
+        "--base-address", help="Indirizzo di caricamento per firmware grezzi, es. 0x80000000"
+    )
+    d.add_argument("--min-size", type=int, default=16, help="Salta funzioni più piccole (byte)")
+    d.add_argument("--max", type=int, default=500, dest="max_functions", help="Massimo funzioni")
+    d.add_argument("--filter", help="Regex sul nome delle funzioni da tenere")
+    d.add_argument(
+        "--analyze",
+        action="store_true",
+        help="Manda ogni funzione al modello (altrimenti solo export C)",
+    )
+    _add_engine_args(d)
     return p
 
 
-def main(argv: list[str] | None = None) -> int:
-    args = _parser().parse_args(argv)
+def _settings(args: argparse.Namespace) -> Settings:
     settings = Settings.from_env()
     if args.backend:
         settings = replace(settings, backend=args.backend)
     if args.model:
         settings = replace(settings, model=args.model)
+    return settings
 
+
+def _cmd_analyze(args: argparse.Namespace) -> str:
+    content = args.file.read_text(encoding="utf-8", errors="replace")
+    orch = build_orchestrator(_settings(args))
+    base = AnalysisRequest(
+        content=content,
+        domain=Domain(args.domain) if args.domain else None,
+        kind=ArtifactKind(args.kind) if args.kind else None,
+        arch=args.arch,
+        context=args.context,
+        source_name=args.file.name,
+    )
+    if not args.split:
+        return orch.run(base).model_dump_json(indent=2)
+    chunks = split_c_functions(content)
+    if not chunks:
+        raise DrDeconstructError("Nessuna funzione C trovata da dividere.")
+    results = analyze_functions(orch, base, [(c.name, c.code) for c in chunks])
+    return json.dumps(results, indent=2, ensure_ascii=False)
+
+
+def _cmd_decompile(args: argparse.Namespace) -> str:
+    print(f"[*] Ghidra sta analizzando {args.binary.name}…", file=sys.stderr)
+    program = GhidraExporter(install_dir=args.ghidra).export(
+        args.binary,
+        min_size=args.min_size,
+        max_functions=args.max_functions,
+        processor=args.processor,
+        base_address=args.base_address,
+        name_filter=args.filter,
+    )
+    print(f"[*] {len(program.functions)} funzioni ({program.language})", file=sys.stderr)
+    if not args.analyze:
+        return program.as_c_source()
+
+    orch = build_orchestrator(_settings(args))
+    base = AnalysisRequest(
+        content="",
+        kind=ArtifactKind.PSEUDOCODE_C,
+        arch=program.arch,
+        context=args.context,
+        source_name=args.binary.name,
+    )
+    results = analyze_functions(
+        orch, base, [(f"{f.name}@{f.entry}", f.code) for f in program.functions]
+    )
+    return json.dumps(
+        {"program": program.program, "language": program.language, "functions": results},
+        indent=2,
+        ensure_ascii=False,
+    )
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _parser().parse_args(argv)
+    commands = {"analyze": _cmd_analyze, "decompile": _cmd_decompile}
     try:
-        content = args.file.read_text(encoding="utf-8", errors="replace")
-        orch = build_orchestrator(settings)
-        base = AnalysisRequest(
-            content=content,
-            domain=Domain(args.domain) if args.domain else None,
-            kind=ArtifactKind(args.kind) if args.kind else None,
-            arch=args.arch,
-            context=args.context,
-            source_name=args.file.name,
-        )
-        if args.split:
-            chunks = split_c_functions(content)
-            if not chunks:
-                raise DrDeconstructError("Nessuna funzione C trovata da dividere.")
-            results = {}
-            for chunk in chunks:
-                print(f"[*] {chunk.name}", file=sys.stderr)
-                req = replace(base, content=chunk.code, kind=base.kind or ArtifactKind.PSEUDOCODE_C)
-                results[chunk.name] = orch.run(req).model_dump()
-            output = json.dumps(results, indent=2, ensure_ascii=False)
-        else:
-            output = orch.run(base).model_dump_json(indent=2)
+        output = commands[args.command](args)
     except (DrDeconstructError, OSError) as exc:
         print(f"Errore: {exc}", file=sys.stderr)
         return 1
 
     if args.output:
         args.output.write_text(output, encoding="utf-8")
+        print(f"[*] Salvato in {args.output}", file=sys.stderr)
     else:
         print(output)
     return 0

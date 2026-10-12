@@ -22,6 +22,8 @@ flash. Ogni scrittura passa dai controlli di `acquisition/safety.py`: backup
 dell'originale obbligatorio, conferma esplicita dell'operatore e rilettura di
 verifica. Richiede l'extra `hardware`.
 
+Con `drdec decompile` dai direttamente un file binario: DrDeconstruct avvia Ghidra in modalità headless (gratuito, serve Java 21 e `GHIDRA_INSTALL_DIR`), ne estrae lo pseudocodice e, con `--analyze`, lo manda al modello.
+
 L'orchestratore usa il tipo dichiarato dall'operatore (`--kind`). Il
 riconoscimento automatico è solo un ripiego: se è incerto, il programma si
 ferma e chiede di specificare.
@@ -49,7 +51,12 @@ pip install -e ".[dev]"
 ## Uso
 
 ```bash
-# Una funzione esportata da Ghidra
+# Un binario intero: Ghidra lo decompila e il modello lo spiega
+drdec decompile programma.exe --analyze -o risultato.json
+# Un firmware grezzo (indica il processore) e tieni solo certe funzioni
+drdec decompile firmware.bin --processor MIPS:LE:32:default --filter "^FUN_" --analyze
+
+# Una funzione già esportata da Ghidra
 drdec analyze funzione.c --kind pseudocode_c --arch mips32el
 
 # Un export con molte funzioni, analizzate una alla volta
@@ -89,7 +96,7 @@ src/drdeconstruct/
 ├─ hardware/            schemi, prompt, analizzatore (dump, registri, bus)
 ├─ acquisition/         USB, seriale, Bluetooth, flash (con controlli di sicurezza)
 ├─ gui/                 interfaccia grafica PySide6
-└─ preprocess/          divisione dell'export in funzioni
+└─ preprocess/          Ghidra headless (binario -> pseudocodice) e divisione in funzioni
 ```
 
 ## Test
