@@ -16,6 +16,29 @@ def app():
     yield instance
 
 
+@pytest.fixture(autouse=True)
+def _dispose_widgets(request):
+    """Distrugge le finestre dei test nel thread principale.
+
+    Le finestre restano vive in cicli di riferimenti (lambda collegate ai
+    segnali); se il garbage collector le liberasse più tardi dentro il thread
+    di lavoro di un altro test, Qt andrebbe in crash (segmentation fault).
+    """
+    yield
+    if "app" not in request.fixturenames:
+        return
+    import gc
+
+    from PySide6.QtCore import QCoreApplication, QEvent
+    from PySide6.QtWidgets import QApplication
+
+    for widget in QApplication.topLevelWidgets():
+        widget.close()
+        widget.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    gc.collect()
+
+
 def test_main_window_builds(app):
     from drdeconstruct.config import Settings
     from drdeconstruct.gui.main_window import MainWindow
