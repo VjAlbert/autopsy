@@ -12,8 +12,11 @@ Two artifacts are produced for every release:
 
 Push a tag like `v0.2.0` and `.github/workflows/release.yml` builds everything on a Windows
 runner, smoke-tests the exe (it must stay open for 12 seconds), builds the installer and attaches
-all files to the GitHub Release. **Actions → Release → Run workflow** does the same as a dry run
-and leaves the files as a downloadable run artifact without publishing anything.
+all files to the GitHub Release.
+
+No terminal? **Actions → Release → Run workflow**, type a version such as `0.2.0` and press
+**Run workflow**: the tag `v0.2.0` is created on the chosen branch and the release is published.
+Leave the version empty for a dry run that only leaves the files as a downloadable run artifact.
 
 ## Build locally (Windows 10/11)
 
