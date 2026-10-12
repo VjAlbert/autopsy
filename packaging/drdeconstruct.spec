@@ -10,6 +10,8 @@ hiddenimports = (
     collect_submodules("serial")
     + collect_submodules("usb")
     + collect_submodules("bleak")
+    + collect_submodules("zeroconf")
+    + collect_submodules("cryptography")
 )
 
 a = Analysis(

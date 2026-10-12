@@ -1,9 +1,12 @@
-"""Riga di comando: `drdec analyze` per i testi, `drdec decompile` per i binari."""
+"""Riga di comando: `drdec analyze` per i testi, `drdec decompile` per i binari,
+`drdec home` per i dispositivi smart home (Xiaomi, Aqara, Tapo)."""
 
 from __future__ import annotations
 
 import argparse
+import getpass
 import json
+import os
 import sys
 from dataclasses import replace
 from pathlib import Path
@@ -132,7 +135,44 @@ def _parser() -> argparse.ArgumentParser:
         "cases", type=Path, nargs="?", help="Cartella dei casi (default: quelli inclusi)"
     )
     _add_engine_args(e)
+    _add_home_parser(sub)
     return p
+
+
+def _add_home_parser(sub) -> None:
+    h = sub.add_parser("home", help="Dispositivi smart home: Xiaomi, Aqara, Tapo (sola lettura).")
+    hs = h.add_subparsers(dest="home_command", required=True)
+
+    s = hs.add_parser("scan", help="Cerca i dispositivi via Bluetooth LE e rete locale.")
+    s.add_argument("--timeout", type=float, default=4.0)
+    s.add_argument("--no-ble", action="store_true", help="Salta il Bluetooth")
+    s.add_argument("--no-lan", action="store_true", help="Salta la rete locale")
+    s.add_argument("-o", "--output", type=Path, help="Salva l'inventario qui")
+
+    g = hs.add_parser("guide", help="Spiega come collegarsi a ogni dispositivo trovato.")
+    g.add_argument("--inventory", type=Path, help="Inventario salvato con `home scan -o`")
+    g.add_argument("--timeout", type=float, default=4.0)
+    _add_engine_args(g)
+
+    m = hs.add_parser("miio", help="Interroga un dispositivo Xiaomi WiFi (serve il token).")
+    m.add_argument("ip")
+    m.add_argument("--token", help="Token a 32 caratteri (o DRDEC_MIIO_TOKEN, o richiesta)")
+    m.add_argument("--method", default="miIO.info")
+    m.add_argument("--params", default="[]", help="Parametri JSON")
+    m.add_argument("--confirm", action="store_true", help="Consenti comandi che modificano")
+    m.add_argument("-o", "--output", type=Path)
+
+    t = hs.add_parser("tapo", help="Interroga un dispositivo Tapo (serve l'account TP-Link).")
+    t.add_argument("ip")
+    t.add_argument("--user", help="Email TP-Link (o DRDEC_TAPO_USER)")
+    t.add_argument("--method", default="get_device_info")
+    t.add_argument("--params", default="{}", help="Parametri JSON")
+    t.add_argument("--confirm", action="store_true", help="Consenti comandi che modificano")
+    t.add_argument("-o", "--output", type=Path)
+
+    v = hs.add_parser("valetudo", help="Legge stato e modello di un robot con Valetudo.")
+    v.add_argument("ip")
+    v.add_argument("-o", "--output", type=Path)
 
 
 def _settings(args: argparse.Namespace) -> Settings:
@@ -222,16 +262,77 @@ def _cmd_eval(args: argparse.Namespace) -> str:
     return report(results)
 
 
+def _secret(value: str | None, env: str, prompt: str) -> str:
+    """Prende un segreto da argomento, variabile d'ambiente o richiesta a terminale."""
+    secret = value or os.environ.get(env) or getpass.getpass(prompt)
+    if not secret:
+        raise DrDeconstructError(f"Manca {prompt.rstrip(': ')}.")
+    return secret
+
+
+def _json_arg(text: str):
+    try:
+        return json.loads(text)
+    except ValueError as exc:
+        raise DrDeconstructError(f"Parametri non validi (serve JSON): {text}") from exc
+
+
+def _cmd_home(args: argparse.Namespace) -> str:
+    from drdeconstruct.smarthome.inventory import build_inventory, default_scanners
+    from drdeconstruct.smarthome.safety import CommandGuard
+
+    cmd = args.home_command
+    if cmd == "scan":
+        scanners = default_scanners(args.timeout, ble=not args.no_ble, lan=not args.no_lan)
+        inv = build_inventory(scanners)
+        for channel, error in inv.errors.items():
+            print(f"[!] {channel}: {error}", file=sys.stderr)
+        print(f"[*] {len(inv.devices)} dispositivi trovati", file=sys.stderr)
+        return inv.to_json()
+    if cmd == "guide":
+        from drdeconstruct.smarthome.guide import SmartHomeAdvisor
+
+        if args.inventory:
+            inventory = _json_arg(args.inventory.read_text(encoding="utf-8"))
+        else:
+            inventory = build_inventory(default_scanners(args.timeout)).to_dict()
+        advisor = SmartHomeAdvisor(make_backend(_settings(args)))
+        return advisor.advise(inventory, args.context).model_dump_json(indent=2)
+    guard = CommandGuard(confirmed=getattr(args, "confirm", False))
+    if cmd == "miio":
+        from drdeconstruct.smarthome.miio import MiioClient
+
+        token = _secret(args.token, "DRDEC_MIIO_TOKEN", "Token miIO: ")
+        result = MiioClient(args.ip, token).send(args.method, _json_arg(args.params), guard)
+    elif cmd == "tapo":
+        from drdeconstruct.smarthome.tapo import TapoClient
+
+        user = args.user or os.environ.get("DRDEC_TAPO_USER") or input("Email TP-Link: ")
+        password = _secret(None, "DRDEC_TAPO_PASSWORD", "Password TP-Link: ")
+        params = _json_arg(args.params) or None
+        result = TapoClient(args.ip, user, password).request(args.method, params, guard)
+    else:
+        from drdeconstruct.smarthome.valetudo import read_robot
+
+        result = read_robot(args.ip)
+    return json.dumps(result, indent=2, ensure_ascii=False)
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
-    commands = {"analyze": _cmd_analyze, "decompile": _cmd_decompile, "eval": _cmd_eval}
+    commands = {
+        "analyze": _cmd_analyze,
+        "decompile": _cmd_decompile,
+        "eval": _cmd_eval,
+        "home": _cmd_home,
+    }
     try:
         output = commands[args.command](args)
     except (DrDeconstructError, OSError) as exc:
         print(f"Errore: {exc}", file=sys.stderr)
         return 1
 
-    if args.output:
+    if getattr(args, "output", None):
         args.output.write_text(output, encoding="utf-8")
         print(f"[*] Salvato in {args.output}", file=sys.stderr)
     else:
