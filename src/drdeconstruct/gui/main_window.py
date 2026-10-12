@@ -1,4 +1,4 @@
-"""Finestra principale di DrDeconstruct: schede Software, Hardware, Dispositivi."""
+"""Finestra principale di DrDeconstruct: schede Software, Hardware, Dispositivi, Casa smart."""
 
 from __future__ import annotations
 
@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 
 from drdeconstruct.config import BACKENDS, Settings
 from drdeconstruct.core.types import AnalysisRequest, ArtifactKind
+from drdeconstruct.gui.smarthome_tab import SmartHomeTab
 from drdeconstruct.gui.theme import DARK_QSS
 from drdeconstruct.gui.workers import Task
 
@@ -42,6 +43,8 @@ class MainWindow(QMainWindow):
         tabs.addTab(self._build_analysis_tab(), "Software / Hardware")
         tabs.addTab(self._build_decompile_tab(), "Decompila binario")
         tabs.addTab(self._build_devices_tab(), "Dispositivi")
+        self.smarthome_tab = SmartHomeTab(self._start, self._current_settings)
+        tabs.addTab(self.smarthome_tab, "Casa smart")
         self.setCentralWidget(tabs)
         self.statusBar().showMessage("Pronto")
 
@@ -245,6 +248,11 @@ class MainWindow(QMainWindow):
         )
 
     # --- Infrastruttura ---------------------------------------------------
+    def _current_settings(self) -> Settings:
+        from dataclasses import replace
+
+        return replace(self.settings, backend=self.backend_box.currentText())
+
     def _start(self, fn, on_done, busy: str) -> None:
         if self._task and self._task.isRunning():
             return
