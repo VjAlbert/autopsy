@@ -59,7 +59,7 @@ def test_ghidra_check(tmp_path):
 
 def test_run_checks_puts_the_chosen_engine_first():
     checks = doctor.run_checks(Settings(backend="ollama"), {}, lambda n: None, _refused)
-    assert [c.key for c in checks] == ["ollama", "ghidra", "flashrom"]
+    assert [c.key for c in checks] == ["ollama", "ghidra", "flashrom", "rust"]
     text = doctor.format_checks(checks)
     assert "✗ Ollama" in text and "→" in text
 

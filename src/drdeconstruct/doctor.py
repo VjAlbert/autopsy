@@ -26,6 +26,7 @@ OLLAMA_DOWNLOAD = "https://ollama.com/download"
 GHIDRA_DOWNLOAD = "https://github.com/NationalSecurityAgency/ghidra/releases"
 JAVA_DOWNLOAD = "https://adoptium.net/temurin/releases/?version=21"
 FLASHROM_DOCS = "https://www.flashrom.org/"
+RUST_DOWNLOAD = "https://rustup.rs/"
 
 # Installer ufficiali di Claude Code (una riga, senza Node.js).
 CLAUDE_INSTALL_WINDOWS = "irm https://claude.ai/install.ps1 | iex"
@@ -161,6 +162,26 @@ def check_flashrom(which: Which = shutil.which) -> Check:
     )
 
 
+def check_rust(which: Which = shutil.which) -> Check:
+    if which("cargo"):
+        return Check(
+            "rust",
+            "Rust (controllo del porting)",
+            True,
+            "Installato: il porting in Rust viene compilato e corretto da solo.",
+        )
+    return Check(
+        "rust",
+        "Rust (controllo del porting)",
+        False,
+        "Non installato. Serve solo per far compilare e correggere in automatico il codice "
+        "tradotto in Rust; la traduzione funziona anche senza.",
+        fix="Installalo da rustup.rs (gratuito), poi riavvia DrDeconstruct.",
+        link=RUST_DOWNLOAD,
+        optional=True,
+    )
+
+
 def engine_check(
     settings: Settings,
     env: Mapping[str, str] = os.environ,
@@ -187,6 +208,7 @@ def run_checks(
         engine_check(settings, env, which, opener),
         check_ghidra(env, which),
         check_flashrom(which),
+        check_rust(which),
     ]
 
 

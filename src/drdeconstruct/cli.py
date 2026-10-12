@@ -1,4 +1,5 @@
 """Riga di comando: `drdec analyze` per i testi, `drdec decompile` per i binari,
+`drdec port` per tradurre il proprio codice sorgente in Rust (o altro),
 `drdec web` per studiare il front-end di un sito,
 `drdec home` per i dispositivi smart home (Xiaomi, Aqara, Tapo)."""
 
@@ -145,6 +146,33 @@ def _parser() -> argparse.ArgumentParser:
     _add_scaffold_lang(s)
     _add_engine_args(s)
 
+    pt = sub.add_parser(
+        "port",
+        help="Traduce il TUO codice sorgente in un altro linguaggio (Rust in primis).",
+        description=(
+            "Traduce file o cartella di codice sorgente scritto da te, pezzo per pezzo, con i "
+            "corpi delle funzioni implementati, e scrive una CHECKLIST.md dei punti da "
+            "verificare. Se il compilatore è installato controlla il risultato e rimanda al "
+            "modello i pezzi con errori. La traduzione automatica va sempre testata."
+        ),
+    )
+    pt.add_argument("source", type=Path, help="File o cartella del tuo codice")
+    pt.add_argument("--out", type=Path, required=True, metavar="CARTELLA", help="Dove scrivere")
+    pt.add_argument(
+        "--lang",
+        choices=("rust", "python", "c"),
+        default="rust",
+        help="Linguaggio di destinazione (default: rust)",
+    )
+    pt.add_argument("--no-check", action="store_true", help="Non compilare il risultato")
+    pt.add_argument(
+        "--fix-rounds",
+        type=int,
+        default=1,
+        help="Giri di correzione dopo gli errori del compilatore (default: 1, 0 = nessuno)",
+    )
+    _add_engine_args(pt)
+
     d = sub.add_parser(
         "decompile", help="Decompila un binario con Ghidra e, a richiesta, analizza le funzioni."
     )
@@ -199,7 +227,9 @@ def _parser() -> argparse.ArgumentParser:
         "cases", type=Path, nargs="?", help="Cartella dei casi (default: quelli inclusi)"
     )
     _add_engine_args(e)
-    doc = sub.add_parser("doctor", help="Controlla cosa è pronto: motore IA, Ghidra, flashrom.")
+    doc = sub.add_parser(
+        "doctor", help="Controlla cosa è pronto: motore IA, Ghidra, flashrom, Rust."
+    )
     doc.add_argument("--backend", choices=BACKENDS, help="Motore da controllare")
     _add_home_parser(sub)
     return p
@@ -325,6 +355,31 @@ def _cmd_scaffold(args: argparse.Namespace) -> str:
     for path in paths:
         print(f"[*] Scheletro: {path}", file=sys.stderr)
     return module.model_dump_json(indent=2)
+
+
+def _cmd_port(args: argparse.Namespace) -> str:
+    from drdeconstruct.software.port import run_port
+    from drdeconstruct.software.port_source import load_sources
+
+    files = load_sources(args.source)
+    units = sum(len(f.units) for f in files)
+    print(f"[*] {len(files)} file, {units} pezzi da tradurre in {args.lang}", file=sys.stderr)
+    project, paths = run_port(
+        make_backend(_settings(args)),
+        files,
+        args.out,
+        args.lang,
+        args.context,
+        name=args.source.resolve().stem or "porting",
+        check=not args.no_check,
+        fix_rounds=max(args.fix_rounds, 0),
+        progress=lambda i, n, name: print(f"[{i}/{n}] {name}", file=sys.stderr),
+        stage=lambda text: print(f"[*] {text}", file=sys.stderr),
+    )
+    for path in paths:
+        print(f"[*] Scritto: {path}", file=sys.stderr)
+    print(f"[*] Leggi {Path(args.out) / 'CHECKLIST.md'} prima di usare il codice.", file=sys.stderr)
+    return project.model_dump_json(indent=2)
 
 
 def _cmd_decompile(args: argparse.Namespace) -> str:
@@ -508,6 +563,7 @@ def main(argv: list[str] | None = None) -> int:
     commands = {
         "analyze": _cmd_analyze,
         "scaffold": _cmd_scaffold,
+        "port": _cmd_port,
         "decompile": _cmd_decompile,
         "web": _cmd_web,
         "eval": _cmd_eval,

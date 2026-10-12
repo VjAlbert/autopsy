@@ -46,6 +46,7 @@ def main() -> int:
                 "Non installato. Serve solo con un programmatore.",
                 optional=True,
             ),
+            Check("rust", "Rust (controllo del porting)", True, "Installato."),
         ]
     )
     win._set_engine_state(True)
@@ -120,11 +121,16 @@ def main() -> int:
         "SF: Detected XM25QH128A, total 16 MiB\nStarting kernel ...\n"
     )
 
+    port = win.port_tab
+    _fill_port(port)
+    win.statusBar().showMessage("Pronto")
+
     shots = {
         "home": "01-home.png",
         "analysis": "02-explain.png",
         "decompile": "03-decompile.png",
         "scaffold": "04-scaffold.png",
+        "port": "09-port.png",
         "web": "05-web.png",
         "devices": "06-devices.png",
         "smarthome": "07-smart-home.png",
@@ -138,6 +144,49 @@ def main() -> int:
         print(out / name)
     win.close()
     return 0
+
+
+def _fill_port(tab) -> None:
+    """The "port your code" page after a finished run, with fake translations."""
+    from drdeconstruct.software.port import Language, PortGenerator
+    from drdeconstruct.software.port_source import from_text
+    from tests.test_port import ADD_ALL_RS, MEAN_RS, STATS_PY, SequenceLLM, unit
+
+    files = from_text(STATS_PY, "python", "stats")
+    llm = SequenceLLM(
+        [
+            unit(
+                "stats",
+                ADD_ALL_RS + "\n\n" + MEAN_RS,
+                checklist=[
+                    {
+                        "kind": "errors",
+                        "severity": "high",
+                        "text": "Lista vuota: Python solleva ZeroDivisionError, Rust dà NaN.",
+                    },
+                    {
+                        "kind": "types",
+                        "severity": "medium",
+                        "text": "Gli interi Python non hanno limite: i64 può andare in overflow.",
+                    },
+                    {
+                        "kind": "test",
+                        "severity": "medium",
+                        "text": "Confronta mean([1, 2, 3]) == 2.0 su originale e Rust.",
+                    },
+                ],
+            )
+        ]
+    )
+    project = PortGenerator(llm).generate(files, Language.RUST, name="stats")
+    project.compiler, project.compile_ok = "cargo check", True
+    tab.mode_folder.setChecked(True)
+    tab.path_edit.setText("C:\\Users\\me\\progetti\\stats")
+    tab.source_summary.setText("Trovati 1 file (Python): 1 pezzo da tradurre.")
+    tab._on_progress(("units", ["stats.py: stats"]))
+    tab._on_progress(("project", project))
+    tab.folder_edit.setText("C:\\Users\\me\\DrDeconstruct\\porting\\stats")
+    tab._on_done((project, []))
 
 
 if __name__ == "__main__":
