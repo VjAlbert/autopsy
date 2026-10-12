@@ -9,17 +9,39 @@ description = "Reverse engineering assistito da AI: pseudocodice, firmware, bus 
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
+keywords = ["reverse-engineering", "firmware", "ghidra", "disassembly", "claude", "ai"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Security",
+    "Topic :: Software Development :: Disassemblers",
+]
 dependencies = ["pydantic>=2.6"]
 
 [project.optional-dependencies]
 # Acquisizione hardware: seriale/UART, USB, Bluetooth LE
 hardware = ["pyserial>=3.5", "pyusb>=1.2", "bleak>=0.22"]
+# Interfaccia grafica desktop
+gui = ["PySide6-Essentials>=6.6"]
 # Motore opzionale via chiave API (spento di default)
 api = ["anthropic>=0.70"]
 dev = ["pytest>=8", "ruff>=0.6"]
+# Tutto insieme, per l'eseguibile Windows
+full = ["drdeconstruct[hardware,gui,api]"]
+
+[project.urls]
+Homepage = "https://github.com/VjAlbert/autopsy"
+Repository = "https://github.com/VjAlbert/autopsy"
+Issues = "https://github.com/VjAlbert/autopsy/issues"
 
 [project.scripts]
 drdec = "drdeconstruct.cli:main"
+
+[project.gui-scripts]
+drdec-gui = "drdeconstruct.gui.app:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/drdeconstruct"]

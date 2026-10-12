@@ -1,5 +1,7 @@
 # Autopsy (DrDeconstruct)
 
+![CI](https://github.com/VjAlbert/autopsy/actions/workflows/ci.yml/badge.svg) ![Python](https://img.shields.io/badge/python-3.10%2B-blue) ![License](https://img.shields.io/badge/license-MIT-green)
+
 Piattaforma assistita da AI per il reverse engineering, software e hardware.
 DrDeconstruct non sostituisce Ghidra, IDA o binwalk: prende il loro output
 testuale e lo spiega con un modello linguistico.
@@ -10,6 +12,15 @@ testuale e lo spiega con un modello linguistico.
 |---|---|---|
 | Software | Pseudocodice C (Ghidra/IDA) o assembly | Scopo della funzione, flusso di controllo, variabili rinominate, codice riscritto, note sull'algoritmo |
 | Hardware | Estratti esadecimali di dump, mappe di registri, log UART/SPI/I2C/CAN | Formato riconosciuto, campi decodificati, strutture, ipotesi su pin e registri |
+
+### Dispositivi collegati
+
+Il modulo `acquisition` elenca i dispositivi USB e le porte seriali, scansiona i
+dispositivi Bluetooth LE vicini, cattura il log di avvio via seriale (UART) e,
+con un programmatore e `flashrom`, fa il backup e l'aggiornamento della memoria
+flash. Ogni scrittura passa dai controlli di `acquisition/safety.py`: backup
+dell'originale obbligatorio, conferma esplicita dell'operatore e rilettura di
+verifica. Richiede l'extra `hardware`.
 
 L'orchestratore usa il tipo dichiarato dall'operatore (`--kind`). Il
 riconoscimento automatico è solo un ripiego: se è incerto, il programma si
@@ -50,6 +61,22 @@ drdec analyze uart.log --kind bus_log --backend ollama
 
 Variabili d'ambiente: `DRDEC_BACKEND`, `DRDEC_MODEL`, `DRDEC_OLLAMA_HOST`.
 
+## Interfaccia grafica
+
+```bash
+pip install -e ".[gui]"
+drdec-gui
+```
+
+Finestra con tema scuro: una scheda per analizzare Software/Hardware (incolli o
+apri un file e ottieni il risultato) e una per i dispositivi collegati.
+
+## Eseguibile per Windows 10/11
+
+Non serve installare Python. Scarica `DrDeconstruct.exe` dalla pagina Releases,
+oppure compilalo con PyInstaller (vedi [`packaging/`](packaging/README.md)). A
+ogni tag `v*` la build Windows parte da sola e allega l'exe alla Release.
+
 ## Struttura
 
 ```
@@ -58,8 +85,10 @@ src/drdeconstruct/
 ├─ cli.py               comando `drdec`
 ├─ core/                tipi, euristica di fallback, orchestratore
 ├─ llm/                 motori: claude_code, ollama, anthropic_api
-├─ software/            schemi, prompt, analizzatore
-├─ hardware/            schemi, prompt, analizzatore
+├─ software/            schemi, prompt, analizzatore (pseudocodice/ASM)
+├─ hardware/            schemi, prompt, analizzatore (dump, registri, bus)
+├─ acquisition/         USB, seriale, Bluetooth, flash (con controlli di sicurezza)
+├─ gui/                 interfaccia grafica PySide6
 └─ preprocess/          divisione dell'export in funzioni
 ```
 
