@@ -1,0 +1,36 @@
+[build-system]
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
+
+[project]
+name = "drdeconstruct"
+version = "0.1.0"
+description = "Reverse engineering assistito da AI: pseudocodice, firmware, bus seriali."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = ["pydantic>=2.6"]
+
+[project.optional-dependencies]
+# Acquisizione hardware: seriale/UART, USB, Bluetooth LE
+hardware = ["pyserial>=3.5", "pyusb>=1.2", "bleak>=0.22"]
+# Motore opzionale via chiave API (spento di default)
+api = ["anthropic>=0.70"]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[project.scripts]
+drdec = "drdeconstruct.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/drdeconstruct"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
