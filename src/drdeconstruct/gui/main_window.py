@@ -1,8 +1,8 @@
 """Finestra principale: barra in alto con il motore IA, navigazione a sinistra,
 una pagina guidata per ogni modulo.
 
-Pagine: Inizio, Spiega codice o dati, Decompila, Scheletro di codice, Sito web,
-Dispositivi, Casa smart, Verifica qualità. Il motore IA si sceglie una volta
+Pagine: Inizio, Spiega codice o dati, Decompila, Scheletro di codice, Porta il tuo
+codice, Sito web, Dispositivi, Casa smart, Verifica qualità. Il motore IA si sceglie una volta
 sola, in alto, e vale per tutte. I lavori lenti girano in un thread separato e
 il loro avanzamento compare nel riquadro in cima alla pagina che li ha avviati.
 """
@@ -36,6 +36,7 @@ from drdeconstruct.gui import icons
 from drdeconstruct.gui.components import Page, restyle
 from drdeconstruct.gui.home_page import HomePage
 from drdeconstruct.gui.pages import AnalysisPage, DecompilePage, DevicesPage, QualityPage, WebPage
+from drdeconstruct.gui.port_tab import PortTab
 from drdeconstruct.gui.scaffold_tab import ScaffoldTab
 from drdeconstruct.gui.smarthome_tab import SmartHomeTab
 from drdeconstruct.gui.theme import DARK_QSS
@@ -74,6 +75,7 @@ class MainWindow(QMainWindow):
         self.analysis_page = AnalysisPage(None, self._current_settings)
         self.decompile_page = DecompilePage(None, self._current_settings)
         self.scaffold_tab = ScaffoldTab(self._current_settings, self.statusBar())
+        self.port_tab = PortTab(self._current_settings, self.statusBar())
         self.web_page = WebPage(None, self._current_settings)
         self.devices_page = DevicesPage(None, self._current_settings)
         self.smarthome_tab = SmartHomeTab(None, self._current_settings)
@@ -83,6 +85,7 @@ class MainWindow(QMainWindow):
             "analysis": self.analysis_page,
             "decompile": self.decompile_page,
             "scaffold": self.scaffold_tab,
+            "port": self.port_tab,
             "web": self.web_page,
             "devices": self.devices_page,
             "smarthome": self.smarthome_tab,
@@ -264,6 +267,7 @@ class MainWindow(QMainWindow):
         checks = run_checks(self._current_settings())
         self.home_page.set_checks(checks)
         self.decompile_page.refresh_ghidra()
+        self.port_tab.refresh_checker()
         self._set_engine_state(checks[0].ok)
 
     def _set_engine_state(self, ok: bool | None) -> None:

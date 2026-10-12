@@ -45,8 +45,8 @@ def test_main_window_builds(app):
 
     win = MainWindow(Settings(backend="ollama"))
     assert win.windowTitle() == "DrDeconstruct"
-    # Inizio + 7 moduli, ognuno con la sua voce nella barra laterale
-    assert win.pages.count() == 8 and win.nav.count() == 8
+    # Inizio + 8 moduli, ognuno con la sua voce nella barra laterale
+    assert win.pages.count() == 9 and win.nav.count() == 9
     assert win.current_page() is win.home_page
     assert win.backend_box.currentData() == "ollama"
     assert win.decompile_page.binary_edit.text() == ""

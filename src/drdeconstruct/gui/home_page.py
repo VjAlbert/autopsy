@@ -22,6 +22,7 @@ TILES = [
     ("analysis", "code", "Spiega codice o dati", "Pseudocodice, assembly, dump, log seriali."),
     ("decompile", "chip", "Decompila un programma", "Da .exe o firmware a codice C con Ghidra."),
     ("scaffold", "layers", "Scheletro di codice", "Un codice riscritto e ordinato da completare."),
+    ("port", "swap", "Porta il tuo codice", "Il tuo programma tradotto in Rust, con checklist."),
     ("web", "globe", "Studia un sito web", "Struttura, copia privata, scheletro pulito."),
     ("devices", "usb", "Dispositivi collegati", "USB, seriale, Bluetooth, backup della flash."),
     ("smarthome", "house", "Casa smart", "Xiaomi, Aqara e Tapo: trova e leggi i dispositivi."),
