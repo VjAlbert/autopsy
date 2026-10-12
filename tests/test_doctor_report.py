@@ -65,7 +65,7 @@ def test_run_checks_puts_the_chosen_engine_first():
 
 
 def test_terminal_commands_per_platform():
-    assert doctor.login_command("win32")[-1] == "claude"
+    assert doctor.login_command("win32", exe="claude")[-1] == "claude"
     assert doctor.CLAUDE_INSTALL_WINDOWS in doctor.install_command("win32")
     assert "osascript" in doctor.login_command("darwin")
 

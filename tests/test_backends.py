@@ -73,3 +73,28 @@ def test_ollama_sends_schema(software_payload):
     assert result.algorithm_notes
     assert seen["body"]["format"]["title"] == "SoftwareAnalysis"
     assert seen["body"]["stream"] is False
+
+
+def test_find_claude_uses_native_installer_folder_when_path_is_stale(tmp_path, monkeypatch):
+    from drdeconstruct.llm import claude_code
+
+    monkeypatch.setattr(claude_code.sys, "platform", "win32")
+    native = tmp_path / ".local" / "bin" / "claude.exe"
+    native.parent.mkdir(parents=True)
+    native.write_text("")
+    assert claude_code.find_claude(lambda _: None, tmp_path) == str(native)
+    assert claude_code.find_claude(lambda _: None, tmp_path / "altro") is None
+
+
+def test_npm_shim_runs_node_directly(tmp_path):
+    from drdeconstruct.llm.claude_code import claude_argv
+
+    shim = tmp_path / "claude.cmd"
+    shim.write_text("")
+    # Senza lo script Node accanto resta lo shim.
+    assert claude_argv(str(shim), lambda _: None) == [str(shim)]
+    cli = tmp_path / "node_modules" / "@anthropic-ai" / "claude-code" / "cli.js"
+    cli.parent.mkdir(parents=True)
+    cli.write_text("")
+    assert claude_argv(str(shim), lambda _: "C:/node/node.exe") == ["C:/node/node.exe", str(cli)]
+    assert claude_argv("/usr/bin/claude") == ["/usr/bin/claude"]

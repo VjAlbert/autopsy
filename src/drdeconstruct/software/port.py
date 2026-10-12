@@ -26,6 +26,7 @@ import subprocess
 from collections.abc import Callable
 from pathlib import Path
 
+from drdeconstruct.config import NO_WINDOW
 from drdeconstruct.core.errors import BackendError, DrDeconstructError
 from drdeconstruct.llm.base import LLMBackend
 from drdeconstruct.software.port_prompts import (
@@ -554,7 +555,13 @@ def parse_issues(output: str) -> list[CompileIssue]:
 def _run(cmd: list[str], cwd: Path) -> tuple[int, str]:
     try:
         proc = subprocess.run(
-            cmd, cwd=cwd, capture_output=True, text=True, timeout=600, errors="replace"
+            cmd,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=600,
+            errors="replace",
+            **NO_WINDOW,
         )
     except subprocess.TimeoutExpired:
         return 124, "tempo scaduto"

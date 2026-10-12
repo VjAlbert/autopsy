@@ -18,6 +18,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+from drdeconstruct.config import NO_WINDOW
 from drdeconstruct.core.errors import DrDeconstructError
 
 Runner = Callable[..., subprocess.CompletedProcess]
@@ -134,7 +135,9 @@ class GhidraExporter:
                 binary, tmp_path, output, min_size, max_functions, processor, base_address
             )
             try:
-                proc = self._run(cmd, capture_output=True, text=True, timeout=self.timeout)
+                proc = self._run(
+                    cmd, capture_output=True, text=True, timeout=self.timeout, **NO_WINDOW
+                )
             except FileNotFoundError as exc:
                 raise DrDeconstructError(f"Impossibile avviare Ghidra: {exc}") from exc
             except subprocess.TimeoutExpired as exc:

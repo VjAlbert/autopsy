@@ -139,3 +139,14 @@ def test_usb_scan_lists_devices_even_without_readable_names(monkeypatch):
     devices = list_usb_devices(backend_loader=lambda: object())
     assert devices[0].identifier == "1a86:7523"
     assert devices[0].label == "nome non leggibile"
+
+
+def test_ble_errors_become_plain_messages(monkeypatch):
+    pytest.importorskip("bleak")
+    from drdeconstruct.acquisition.bluetooth import run_ble
+
+    async def no_adapter(bleak):
+        raise OSError(2, "No such file or directory")
+
+    with pytest.raises(DrDeconstructError, match="Bluetooth non risponde"):
+        run_ble(no_adapter)

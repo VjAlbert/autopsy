@@ -3,9 +3,15 @@
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
 from dataclasses import dataclass
 
 BACKENDS = ("claude-code", "ollama", "api")
+
+# Su Windows l'app grafica non ha console: senza questo flag ogni programma esterno
+# (claude, Ghidra, flashrom, cargo) aprirebbe una finestra nera per qualche istante.
+NO_WINDOW: dict = {"creationflags": subprocess.CREATE_NO_WINDOW} if sys.platform == "win32" else {}
 
 
 @dataclass(frozen=True)
