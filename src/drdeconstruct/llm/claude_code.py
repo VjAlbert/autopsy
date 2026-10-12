@@ -29,13 +29,16 @@ class ClaudeCodeBackend:
         executable: str = "claude",
         timeout: float = 600,
         runner: Runner = subprocess.run,
+        fallback_model: str | None = None,
     ):
         self.model = model
         self.executable = executable
         self.timeout = timeout
         self._run = runner
+        self.fallback_model = fallback_model
+        self.last_model: str | None = None
 
-    def _command(self, system: str, schema_json: str) -> list[str]:
+    def _command(self, system: str, schema_json: str, model: str | None) -> list[str]:
         exe = shutil.which(self.executable) or self.executable
         cmd = [
             exe,
@@ -51,8 +54,8 @@ class ClaudeCodeBackend:
             "--strict-mcp-config",
             "--no-session-persistence",
         ]
-        if self.model:
-            cmd += ["--model", self.model]
+        if model:
+            cmd += ["--model", model]
         return cmd
 
     @staticmethod
@@ -63,10 +66,28 @@ class ClaudeCodeBackend:
         return env
 
     def structured(self, system: str, user: str, schema: type[T]) -> T:
+        """Esegue la richiesta; se il modello rifiuta, riprova una volta col modello di riserva."""
         schema_json = json.dumps(schema.model_json_schema(), ensure_ascii=False)
         try:
+            result = self._once(system, user, schema, schema_json, self.model)
+            self.last_model = self.model
+            return result
+        except RefusalError as first:
+            if not self.fallback_model or self.fallback_model == self.model:
+                raise
+            try:
+                result = self._once(system, user, schema, schema_json, self.fallback_model)
+            except RefusalError as second:
+                raise RefusalError(f"Rifiutata anche da {self.fallback_model}: {second}") from first
+            self.last_model = self.fallback_model
+            return result
+
+    def _once(
+        self, system: str, user: str, schema: type[T], schema_json: str, model: str | None
+    ) -> T:
+        try:
             proc = self._run(
-                self._command(system, schema_json),
+                self._command(system, schema_json, model),
                 input=user,
                 capture_output=True,
                 text=True,
@@ -89,13 +110,13 @@ class ClaudeCodeBackend:
         except json.JSONDecodeError as exc:
             raise BackendError(f"Output di Claude Code non è JSON: {proc.stdout[:500]}") from exc
 
-        if payload.get("is_error"):
-            text = str(payload.get("result", ""))
-            if "refus" in text.lower():
-                raise RefusalError(text)
-            raise BackendError(f"Claude Code ha segnalato un errore: {text}")
-
         structured = payload.get("structured_output")
-        if isinstance(structured, dict):
+        if isinstance(structured, dict) and not payload.get("is_error"):
             return schema.model_validate(structured)
+        # Nessun output utile: un rifiuto si riconosce dai campi strutturati del
+        # risultato, non cercando parole nel testo.
+        if payload.get("stop_reason") == "refusal" or payload.get("safety_stops", 0):
+            raise RefusalError(str(payload.get("result", "")) or "richiesta rifiutata")
+        if payload.get("is_error"):
+            raise BackendError(f"Claude Code ha segnalato un errore: {payload.get('result', '')}")
         return parse_json_into(str(payload.get("result", "")), schema)

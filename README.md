@@ -126,7 +126,37 @@ drdec home tapo 192.168.1.60                       # chiede l'account TP-Link
 drdec home valetudo 192.168.1.70                   # robot già con Valetudo
 ```
 
-Variabili d'ambiente: `DRDEC_BACKEND`, `DRDEC_MODEL`, `DRDEC_OLLAMA_HOST`.
+Variabili d'ambiente: `DRDEC_BACKEND`, `DRDEC_MODEL`, `DRDEC_OLLAMA_HOST`,
+`DRDEC_FALLBACK_MODEL`.
+
+### Nomi coerenti tra funzioni
+
+Con più funzioni (`--split`, `decompile --analyze`, o più funzioni incollate
+nella GUI) l'analisi fa due passaggi. Nel primo il modello vede tutte le
+funzioni insieme e dà un solo nome a ogni funzione e globale opaca (`FUN_…`,
+`DAT_…`, `sub_…`). Nel secondo ogni funzione arriva già con quei nomi, così la
+stessa globale non cambia nome da una funzione all'altra. I nomi incerti restano
+solo come suggerimento. Il risultato contiene `symbol_map` e `functions`.
+`--no-global-names` salta il primo passaggio.
+
+### Se il modello rifiuta
+
+Firmware e codice disassemblato a volte fanno scattare i filtri di sicurezza
+del modello. Con il motore `claude-code` DrDeconstruct riprova una volta con
+`DRDEC_FALLBACK_MODEL` (default `claude-opus-4-8`; vuoto per disattivare). Con
+il motore `api` il riprovo lo fa il server (`fallbacks: "default"`). Una
+funzione rifiutata compare nel risultato con `"refused": true` e non ferma le
+altre.
+
+### Misurare la qualità dei nomi
+
+```bash
+drdec eval                     # casi inclusi: CRC32, strlen, checksum, UART 16550…
+drdec eval --no-global-names   # confronto senza il primo passaggio
+```
+
+Ogni caso ha i nomi veri noti; il report dice quanti ne indovina il modello e,
+per i programmi con più funzioni, quanto sono coerenti. Usa il modello vero.
 
 ## Interfaccia grafica
 
@@ -136,7 +166,10 @@ drdec-gui
 ```
 
 Finestra con tema scuro: una scheda per analizzare Software/Hardware (incolli o
-apri un file e ottieni il risultato) e una per i dispositivi collegati e una per la casa smart.
+apri un file e ottieni il risultato; più funzioni C vengono analizzate una alla
+volta con nomi coerenti), una per decompilare un binario, una per i dispositivi
+collegati, una per la casa smart e una "Verifica qualità" che esegue `drdec eval`
+con un clic. Se il modello rifiuta, la finestra spiega cosa provare.
 
 La scheda «Casa smart» è guidata passo passo e non richiede la riga di comando:
 «Cerca dispositivi» mostra l'elenco con una spiegazione semplice per ognuno,
@@ -158,7 +191,9 @@ src/drdeconstruct/
 ├─ cli.py               comando `drdec`
 ├─ core/                tipi, euristica di fallback, orchestratore
 ├─ llm/                 motori: claude_code, ollama, anthropic_api
-├─ software/            analizzatore (pseudocodice/ASM) e scheletri di codice in C/Python/Rust
+├─ software/            analizzatore, mappa dei nomi tra funzioni, scheletri di codice
+├─ evaluation.py        punteggio della rinomina (`drdec eval`)
+├─ eval_cases/          casi di valutazione con i nomi veri
 ├─ hardware/            schemi, prompt, analizzatore (dump, registri, bus)
 ├─ acquisition/         USB, seriale, Bluetooth, flash (con controlli di sicurezza)
 ├─ smarthome/           Xiaomi, Aqara, Tapo: scoperta, miIO, KLAP, Valetudo, guida AI

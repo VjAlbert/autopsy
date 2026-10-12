@@ -11,7 +11,7 @@ def make_backend(settings: Settings) -> LLMBackend:
     if settings.backend == "claude-code":
         from drdeconstruct.llm.claude_code import ClaudeCodeBackend
 
-        return ClaudeCodeBackend(model=settings.model)
+        return ClaudeCodeBackend(model=settings.model, fallback_model=settings.fallback_model)
     if settings.backend == "ollama":
         from drdeconstruct.llm.ollama import OllamaBackend
 

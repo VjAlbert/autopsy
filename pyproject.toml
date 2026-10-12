@@ -31,7 +31,7 @@ smarthome = ["bleak>=0.22", "zeroconf>=0.132", "cryptography>=42"]
 # Interfaccia grafica desktop
 gui = ["PySide6-Essentials>=6.6"]
 # Motore opzionale via chiave API (spento di default)
-api = ["anthropic>=0.70"]
+api = ["anthropic>=1.13"]
 dev = ["pytest>=8", "ruff>=0.6"]
 # Tutto insieme, per l'eseguibile Windows
 full = ["drdeconstruct[hardware,smarthome,gui,api]"]
@@ -49,9 +49,6 @@ drdec-gui = "drdeconstruct.gui.app:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/drdeconstruct"]
-
-[tool.hatch.build.targets.wheel.force-include]
-"src/drdeconstruct/preprocess/ghidra_scripts" = "drdeconstruct/preprocess/ghidra_scripts"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

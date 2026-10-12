@@ -12,37 +12,76 @@ from dataclasses import replace
 from pathlib import Path
 
 from drdeconstruct.config import BACKENDS, Settings
-from drdeconstruct.core.errors import BackendError, DrDeconstructError
+from drdeconstruct.core.errors import BackendError, DrDeconstructError, RefusalError
 from drdeconstruct.core.orchestrator import Orchestrator
 from drdeconstruct.core.types import AnalysisRequest, ArtifactKind, Domain
 from drdeconstruct.hardware.analyzer import HardwareAnalyzer
+from drdeconstruct.llm.base import LLMBackend
 from drdeconstruct.llm.factory import make_backend
 from drdeconstruct.preprocess.chunker import split_c_functions
 from drdeconstruct.preprocess.ghidra import GhidraExporter
 from drdeconstruct.software.analyzer import SoftwareAnalyzer
+from drdeconstruct.software.symbols import (
+    GlobalName,
+    apply_symbol_map,
+    build_symbol_map,
+    hints_context,
+)
+
+
+def build_engine(settings: Settings) -> tuple[LLMBackend, Orchestrator]:
+    llm = make_backend(settings)
+    orch = Orchestrator(
+        {Domain.SOFTWARE: SoftwareAnalyzer(llm), Domain.HARDWARE: HardwareAnalyzer(llm)}
+    )
+    return llm, orch
 
 
 def build_orchestrator(settings: Settings) -> Orchestrator:
-    llm = make_backend(settings)
-    return Orchestrator(
-        {Domain.SOFTWARE: SoftwareAnalyzer(llm), Domain.HARDWARE: HardwareAnalyzer(llm)}
-    )
+    return build_engine(settings)[1]
 
 
 def analyze_functions(
-    orch: Orchestrator, base: AnalysisRequest, functions: list[tuple[str, str]]
+    orch: Orchestrator,
+    base: AnalysisRequest,
+    functions: list[tuple[str, str]],
+    llm: LLMBackend | None = None,
 ) -> dict[str, dict]:
-    """Analizza le funzioni una alla volta; un errore su una non ferma le altre."""
+    """Analizza più funzioni dello stesso programma in due passaggi.
+
+    1. Con `llm` e almeno due funzioni, una mappa unica dei nomi per funzioni e
+       globali opache (vedi `software.symbols`), così restano coerenti.
+    2. Ogni funzione, con i nomi sicuri già sostituiti, viene analizzata da sola;
+       un errore su una non ferma le altre.
+    """
+    symbols: dict[str, GlobalName] = {}
+    if llm is not None and len(functions) > 1:
+        print("[*] Passaggio 1: nomi comuni a tutto il programma", file=sys.stderr)
+        try:
+            symbols = build_symbol_map(llm, functions, base.arch, base.context)
+        except BackendError as exc:
+            print(f"    mappa dei nomi non disponibile, proseguo senza: {exc}", file=sys.stderr)
+
     results: dict[str, dict] = {}
     for i, (name, code) in enumerate(functions, 1):
         print(f"[{i}/{len(functions)}] {name}", file=sys.stderr)
-        req = replace(base, content=code, kind=base.kind or ArtifactKind.PSEUDOCODE_C)
+        code, hints = apply_symbol_map(code, symbols)
+        context = "\n\n".join(part for part in (base.context, hints_context(hints)) if part)
+        req = replace(
+            base, content=code, context=context, kind=base.kind or ArtifactKind.PSEUDOCODE_C
+        )
         try:
             results[name] = orch.run(req).model_dump()
+        except RefusalError as exc:
+            print(f"    rifiutata: {exc}", file=sys.stderr)
+            results[name] = {"error": str(exc), "refused": True}
         except BackendError as exc:
             print(f"    errore: {exc}", file=sys.stderr)
             results[name] = {"error": str(exc)}
-    return results
+    return {
+        "symbol_map": {k: v.model_dump() for k, v in symbols.items()},
+        "functions": results,
+    }
 
 
 def _add_engine_args(p: argparse.ArgumentParser) -> None:
@@ -50,6 +89,11 @@ def _add_engine_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--model")
     p.add_argument("--context", default="", help="Cosa sai già del target")
     p.add_argument("-o", "--output", type=Path, help="Salva il risultato qui")
+    p.add_argument(
+        "--no-global-names",
+        action="store_true",
+        help="Salta il passaggio che dà nomi coerenti a funzioni e globali (più veloce)",
+    )
 
 
 def _add_scaffold_lang(p: argparse.ArgumentParser) -> None:
@@ -114,6 +158,14 @@ def _parser() -> argparse.ArgumentParser:
     _add_scaffold_lang(d)
     _add_engine_args(d)
 
+    e = sub.add_parser(
+        "eval",
+        help="Misura la qualità della rinomina su casi con i nomi veri noti (usa il modello).",
+    )
+    e.add_argument(
+        "cases", type=Path, nargs="?", help="Cartella dei casi (default: quelli inclusi)"
+    )
+    _add_engine_args(e)
     _add_home_parser(sub)
     return p
 
@@ -165,7 +217,7 @@ def _settings(args: argparse.Namespace) -> Settings:
 
 def _cmd_analyze(args: argparse.Namespace) -> str:
     content = args.file.read_text(encoding="utf-8", errors="replace")
-    orch = build_orchestrator(_settings(args))
+    llm, orch = build_engine(_settings(args))
     base = AnalysisRequest(
         content=content,
         domain=Domain(args.domain) if args.domain else None,
@@ -179,7 +231,9 @@ def _cmd_analyze(args: argparse.Namespace) -> str:
     chunks = split_c_functions(content)
     if not chunks:
         raise DrDeconstructError("Nessuna funzione C trovata da dividere.")
-    results = analyze_functions(orch, base, [(c.name, c.code) for c in chunks])
+    results = analyze_functions(
+        orch, base, [(c.name, c.code) for c in chunks], llm=None if args.no_global_names else llm
+    )
     return json.dumps(results, indent=2, ensure_ascii=False)
 
 
@@ -267,7 +321,7 @@ def _cmd_decompile(args: argparse.Namespace) -> str:
     if not args.analyze:
         return program.as_c_source()
 
-    orch = build_orchestrator(_settings(args))
+    llm, orch = build_engine(_settings(args))
     base = AnalysisRequest(
         content="",
         kind=ArtifactKind.PSEUDOCODE_C,
@@ -276,13 +330,37 @@ def _cmd_decompile(args: argparse.Namespace) -> str:
         source_name=args.binary.name,
     )
     results = analyze_functions(
-        orch, base, [(f"{f.name}@{f.entry}", f.code) for f in program.functions]
+        orch,
+        base,
+        [(f"{f.name}@{f.entry}", f.code) for f in program.functions],
+        llm=None if args.no_global_names else llm,
     )
     return json.dumps(
-        {"program": program.program, "language": program.language, "functions": results},
+        {"program": program.program, "language": program.language, **results},
         indent=2,
         ensure_ascii=False,
     )
+
+
+def _cmd_eval(args: argparse.Namespace) -> str:
+    from drdeconstruct.evaluation import load_cases, report, run_case
+
+    cases = load_cases(args.cases) if args.cases else load_cases()
+    if not cases:
+        raise DrDeconstructError(f"Nessun caso .json in {args.cases}.")
+    llm, orch = build_engine(_settings(args))
+    names_llm = None if args.no_global_names else llm
+    results = []
+    for case in cases:
+        print(f"[*] Caso {case.name}", file=sys.stderr)
+        context = "\n\n".join(part for part in (case.context, args.context) if part)
+        results.append(
+            run_case(
+                replace(case, context=context),
+                lambda req, fns: analyze_functions(orch, req, fns, llm=names_llm),
+            )
+        )
+    return report(results)
 
 
 def _secret(value: str | None, env: str, prompt: str) -> str:
@@ -347,6 +425,7 @@ def main(argv: list[str] | None = None) -> int:
         "analyze": _cmd_analyze,
         "scaffold": _cmd_scaffold,
         "decompile": _cmd_decompile,
+        "eval": _cmd_eval,
         "home": _cmd_home,
     }
     try:

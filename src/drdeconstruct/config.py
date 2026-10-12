@@ -13,6 +13,9 @@ class Settings:
     backend: str = "claude-code"
     model: str | None = None
     ollama_host: str = "http://localhost:11434"
+    # Modello di riserva quando quello principale rifiuta (es. filtro "cyber"
+    # su firmware o codice disassemblato). Vuoto = nessun secondo tentativo.
+    fallback_model: str | None = "claude-opus-4-8"
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -20,4 +23,5 @@ class Settings:
             backend=os.environ.get("DRDEC_BACKEND", "claude-code"),
             model=os.environ.get("DRDEC_MODEL") or None,
             ollama_host=os.environ.get("DRDEC_OLLAMA_HOST", "http://localhost:11434"),
+            fallback_model=os.environ.get("DRDEC_FALLBACK_MODEL", "claude-opus-4-8") or None,
         )

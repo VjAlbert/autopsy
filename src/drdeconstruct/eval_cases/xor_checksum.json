@@ -1,0 +1,64 @@
+{
+  "name": "xor_checksum",
+  "arch": "mips32el",
+  "code": [
+    "byte FUN_00402100(byte *param_1,uint param_2)",
+    "{",
+    "  byte bVar1;",
+    "  uint uVar2;",
+    "  ",
+    "  bVar1 = 0;",
+    "  for (uVar2 = 0; uVar2 < param_2; uVar2 = uVar2 + 1) {",
+    "    bVar1 = bVar1 ^ param_1[uVar2];",
+    "  }",
+    "  return bVar1;",
+    "}"
+  ],
+  "expected": {
+    "FUN_00402100": [
+      "xor",
+      "checksum",
+      "lrc",
+      "parity",
+      "bcc",
+      "cksum"
+    ],
+    "bVar1": [
+      "checksum",
+      "xor",
+      "acc",
+      "lrc",
+      "result",
+      "cs",
+      "bcc",
+      "cksum",
+      "sum",
+      "parity"
+    ],
+    "param_1": [
+      "buf",
+      "data",
+      "ptr",
+      "bytes",
+      "frame",
+      "msg",
+      "packet",
+      "p"
+    ],
+    "param_2": [
+      "len",
+      "size",
+      "count",
+      "length",
+      "n",
+      "num"
+    ],
+    "uVar2": [
+      "i",
+      "idx",
+      "index",
+      "pos",
+      "offset"
+    ]
+  }
+}
