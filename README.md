@@ -22,6 +22,30 @@ flash. Ogni scrittura passa dai controlli di `acquisition/safety.py`: backup
 dell'originale obbligatorio, conferma esplicita dell'operatore e rilettura di
 verifica. Richiede l'extra `hardware`.
 
+### Casa smart: Xiaomi, Aqara, Tapo
+
+Il modulo `smarthome` cerca i tuoi dispositivi e spiega come collegarti a
+ognuno. Ogni ecosistema ha un canale e un'autenticazione diversi, quindi senza
+token o credenziali il programma scopre e identifica, non controlla.
+
+| Canale | Cosa vede | Cosa serve per leggerne lo stato |
+|---|---|---|
+| Bluetooth LE (MiBeacon) | Sensori Xiaomi e Aqara, abbinamento di robot e prese | Niente se l'annuncio è in chiaro; la bindkey dal cloud Xiaomi se è cifrato |
+| miIO (UDP 54321) | Dispositivi Xiaomi WiFi, robot compresi | Il token di 32 caratteri del dispositivo |
+| Scoperta Tapo (UDP 20002) | Prese, lampadine, hub e telecamere Tapo | Email e password TP-Link (KLAP); le telecamere usano RTSP/ONVIF |
+| mDNS | Hub Aqara (HomeKit), Xiaomi, robot con Valetudo, Matter | Dipende dal servizio; Valetudo non chiede nulla |
+
+Limiti reali: i sensori Zigbee Aqara non sono raggiungibili dal PC senza l'hub
+o una chiavetta Zigbee USB; il Bluetooth dei robot serve di solito solo
+all'abbinamento; per modificare il firmware di un robot la via è il rooting
+(Dustbuilder) e poi Valetudo, che il modulo spiega ma non esegue.
+
+Sicurezza: i metodi in sola lettura passano sempre; ogni comando che cambia lo
+stato del dispositivo richiede `--confirm`. Token e password si leggono da
+argomento, variabile d'ambiente (`DRDEC_MIIO_TOKEN`, `DRDEC_TAPO_USER`,
+`DRDEC_TAPO_PASSWORD`) o richiesta a terminale, non vengono salvati e non
+vengono mai inviati al modello. Richiede l'extra `smarthome`.
+
 Con `drdec decompile` dai direttamente un file binario: DrDeconstruct avvia Ghidra in modalità headless (gratuito, serve Java 21 e `GHIDRA_INSTALL_DIR`), ne estrae lo pseudocodice e, con `--analyze`, lo manda al modello.
 
 L'orchestratore usa il tipo dichiarato dall'operatore (`--kind`). Il
@@ -64,6 +88,14 @@ drdec analyze export_ghidra.c --kind pseudocode_c --split -o risultato.json
 
 # Log di un bus seriale con il motore locale
 drdec analyze uart.log --kind bus_log --backend ollama
+
+# Casa smart: inventario, guida AI, lettura dello stato
+drdec home scan -o casa.json
+drdec home guide --inventory casa.json
+drdec home miio 192.168.1.50                       # chiede il token, legge miIO.info
+drdec home miio 192.168.1.50 --method get_status   # stato del robot
+drdec home tapo 192.168.1.60                       # chiede l'account TP-Link
+drdec home valetudo 192.168.1.70                   # robot già con Valetudo
 ```
 
 Variabili d'ambiente: `DRDEC_BACKEND`, `DRDEC_MODEL`, `DRDEC_OLLAMA_HOST`.
@@ -76,7 +108,7 @@ drdec-gui
 ```
 
 Finestra con tema scuro: una scheda per analizzare Software/Hardware (incolli o
-apri un file e ottieni il risultato) e una per i dispositivi collegati.
+apri un file e ottieni il risultato) e una per i dispositivi collegati e una per la casa smart.
 
 ## Eseguibile per Windows 10/11
 
@@ -95,6 +127,7 @@ src/drdeconstruct/
 ├─ software/            schemi, prompt, analizzatore (pseudocodice/ASM)
 ├─ hardware/            schemi, prompt, analizzatore (dump, registri, bus)
 ├─ acquisition/         USB, seriale, Bluetooth, flash (con controlli di sicurezza)
+├─ smarthome/           Xiaomi, Aqara, Tapo: scoperta, miIO, KLAP, Valetudo, guida AI
 ├─ gui/                 interfaccia grafica PySide6
 └─ preprocess/          Ghidra headless (binario -> pseudocodice) e divisione in funzioni
 ```
