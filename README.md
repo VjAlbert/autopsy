@@ -110,6 +110,12 @@ drdec-gui
 Finestra con tema scuro: una scheda per analizzare Software/Hardware (incolli o
 apri un file e ottieni il risultato) e una per i dispositivi collegati e una per la casa smart.
 
+La scheda «Casa smart» è guidata passo passo e non richiede la riga di comando:
+«Cerca dispositivi» mostra l'elenco con una spiegazione semplice per ognuno,
+«Leggi stato» chiede il token o l'account solo quando serve (senza salvarli),
+«Guida AI» spiega cosa fare per ogni dispositivo. I comandi che modificano un
+dispositivo sono nella sezione «Avanzate» e chiedono sempre conferma.
+
 ## Eseguibile per Windows 10/11
 
 Non serve installare Python. Scarica `DrDeconstruct.exe` dalla pagina Releases,

@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 
 from drdeconstruct.config import BACKENDS, Settings
 from drdeconstruct.core.types import AnalysisRequest, ArtifactKind
+from drdeconstruct.gui.smarthome_tab import SmartHomeTab
 from drdeconstruct.gui.theme import DARK_QSS
 from drdeconstruct.gui.workers import Task
 
@@ -42,7 +43,8 @@ class MainWindow(QMainWindow):
         tabs.addTab(self._build_analysis_tab(), "Software / Hardware")
         tabs.addTab(self._build_decompile_tab(), "Decompila binario")
         tabs.addTab(self._build_devices_tab(), "Dispositivi")
-        tabs.addTab(self._build_smarthome_tab(), "Casa smart")
+        self.smarthome_tab = SmartHomeTab(self._start, self._current_settings)
+        tabs.addTab(self.smarthome_tab, "Casa smart")
         self.setCentralWidget(tabs)
         self.statusBar().showMessage("Pronto")
 
@@ -245,87 +247,12 @@ class MainWindow(QMainWindow):
             busy=busy,
         )
 
-    # --- Scheda casa smart -------------------------------------------------
-    def _build_smarthome_tab(self) -> QWidget:
-        w = QWidget()
-        layout = QVBoxLayout(w)
-        layout.addWidget(self._heading("Dispositivi Xiaomi, Aqara e Tapo"))
-        layout.addWidget(
-            self._hint(
-                "Cerca i dispositivi via Bluetooth e rete locale, in sola lettura. Per "
-                "controllarli servono il token miIO (Xiaomi) o l'account TP-Link (Tapo); i "
-                "sensori Zigbee Aqara si raggiungono solo tramite l'hub. La guida AI spiega "
-                "cosa è raggiungibile e come. Token e password non vengono mai inviati al modello."
-            )
-        )
-
-        row = QHBoxLayout()
-        self.home_scan_btn = QPushButton("Cerca dispositivi")
-        self.home_scan_btn.clicked.connect(self._scan_home)
-        self.home_guide_btn = QPushButton("Guida AI")
-        self.home_guide_btn.clicked.connect(self._run_home_guide)
-        row.addWidget(self.home_scan_btn)
-        row.addWidget(self.home_guide_btn)
-        row.addStretch()
-        layout.addLayout(row)
-
-        self.home_list = QListWidget()
-        self.home_list.currentRowChanged.connect(self._show_home_device)
-        layout.addWidget(self.home_list, 2)
-        self.home_view = QTextEdit()
-        self.home_view.setReadOnly(True)
-        layout.addWidget(self.home_view, 3)
-        self._home_inventory = None
-        return w
-
-    def _scan_home(self) -> None:
-        from drdeconstruct.smarthome.inventory import build_inventory, default_scanners
-
-        self.home_list.clear()
-        self.home_view.clear()
-        self._start(
-            lambda: build_inventory(default_scanners()),
-            on_done=self._show_inventory,
-            busy="Ricerca dispositivi smart home…",
-        )
-
-    def _show_inventory(self, inv) -> None:
-        self._home_inventory = inv
-        self.home_list.addItems([str(d) for d in inv.devices] or ["(nessuno)"])
-        if inv.errors:
-            self.home_view.setPlainText(
-                "Canali non disponibili:\n"
-                + "\n".join(f"- {k}: {v}" for k, v in inv.errors.items())
-            )
-
-    def _show_home_device(self, row: int) -> None:
-        inv = self._home_inventory
-        if inv is None or not 0 <= row < len(inv.devices):
-            return
-        self.home_view.setPlainText(
-            json.dumps(inv.devices[row].to_dict(), indent=2, ensure_ascii=False)
-        )
-
-    def _run_home_guide(self) -> None:
+    # --- Infrastruttura ---------------------------------------------------
+    def _current_settings(self) -> Settings:
         from dataclasses import replace
 
-        from drdeconstruct.llm.factory import make_backend
-        from drdeconstruct.smarthome.guide import SmartHomeAdvisor
+        return replace(self.settings, backend=self.backend_box.currentText())
 
-        if self._home_inventory is None:
-            QMessageBox.information(self, "Prima la ricerca", "Premi prima Cerca dispositivi.")
-            return
-        settings = replace(self.settings, backend=self.backend_box.currentText())
-        inv = self._home_inventory
-        self._start(
-            lambda: SmartHomeAdvisor(make_backend(settings)).advise(inv).model_dump(),
-            on_done=lambda r: self.home_view.setPlainText(
-                json.dumps(r, indent=2, ensure_ascii=False)
-            ),
-            busy="La guida sta analizzando i dispositivi…",
-        )
-
-    # --- Infrastruttura ---------------------------------------------------
     def _start(self, fn, on_done, busy: str) -> None:
         if self._task and self._task.isRunning():
             return

@@ -440,3 +440,58 @@ def test_cli_home_valetudo(monkeypatch, capsys):
     monkeypatch.setattr(valetudo, "read_robot", lambda ip: {"robot": {"modelName": "S5"}})
     assert cli.main(["home", "valetudo", "10.0.0.7"]) == 0
     assert "S5" in capsys.readouterr().out
+
+
+# --- Testi per l'interfaccia ---------------------------------------------------
+
+
+def test_action_for_each_kind():
+    from drdeconstruct.smarthome.presenter import Action, action_for
+
+    assert action_for(_dev(Channel.MIIO, "10.0.0.5")) is Action.MIIO
+    tapo_dev = _dev(Channel.TAPO_UDP, "10.0.0.9", ecosystem=Ecosystem.TAPO, encrypt_type="KLAP")
+    assert action_for(tapo_dev) is Action.TAPO
+    robot = _dev(Channel.MDNS, "10.0.0.7", ecosystem=Ecosystem.VALETUDO)
+    assert action_for(robot) is Action.VALETUDO
+    assert action_for(_dev(Channel.BLE, "A4:C1:38:11:22:33")) is None
+    camera = _dev(Channel.TAPO_UDP, "10.0.0.8", ecosystem=Ecosystem.TAPO, encrypt_type="AES")
+    assert action_for(camera) is None
+
+
+def test_describe_device_is_plain_language():
+    from drdeconstruct.smarthome.presenter import describe_device
+
+    sensor = _dev(Channel.BLE, "A4:C1:38:11:22:33", temperature_c="21.5", battery_pct="80")
+    text = describe_device(sensor)
+    assert "Temperatura: 21.5 °C" in text
+    assert "Batteria: 80 %" in text
+    assert "solo via Bluetooth" in text
+    miio_text = describe_device(_dev(Channel.MIIO, "10.0.0.5", needs=["token miIO"]))
+    assert "Leggi stato" in miio_text and "• token miIO" in miio_text
+    assert "{" not in miio_text
+
+
+def test_describe_errors_and_format_state():
+    from drdeconstruct.smarthome.presenter import describe_errors, format_state
+
+    assert describe_errors({}) == ""
+    assert "Bluetooth non disponibile" in describe_errors({"ble": "No adapter"})
+    text = format_state({"result": {"battery": 90, "state": 8}, "list": [1, {"a": 2}]})
+    assert "result:" in text and "  battery: 90" in text and "• 1" in text and "a: 2" in text
+
+
+def test_format_guide_readable():
+    from drdeconstruct.smarthome.presenter import format_guide
+    from drdeconstruct.smarthome.schemas import SmartHomeGuide
+
+    text = format_guide(SmartHomeGuide.model_validate(GUIDE_PAYLOAD))
+    assert "■ roborock.vacuum.s5 (xiaomi): serve preparazione" in text
+    assert "• Ti serve: token" in text
+    assert "⚠ garanzia" in text
+    assert "1. estrai il token dal cloud" in text
+
+
+def test_inventory_from_dict_roundtrip():
+    inv = Inventory([_dev(Channel.MIIO, "10.0.0.5", needs=["token"])], {"ble": "off"})
+    again = Inventory.from_dict(json.loads(inv.to_json()))
+    assert again.to_dict() == inv.to_dict()

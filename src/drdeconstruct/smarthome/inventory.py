@@ -7,7 +7,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from drdeconstruct.core.errors import DrDeconstructError
-from drdeconstruct.smarthome.models import SmartDevice
+from drdeconstruct.smarthome.models import Channel, Ecosystem, SmartDevice
 
 Scanner = Callable[[], list[SmartDevice]]
 
@@ -22,6 +22,24 @@ class Inventory:
 
     def to_json(self) -> str:
         return json.dumps(self.to_dict(), indent=2, ensure_ascii=False)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> Inventory:
+        """Ricostruisce un inventario salvato (GUI «Salva elenco» o `drdec home scan -o`)."""
+        devices = [
+            SmartDevice(
+                ecosystem=Ecosystem(d["ecosystem"]),
+                channel=Channel(d["channel"]),
+                identifier=d["identifier"],
+                name=d.get("name", ""),
+                model=d.get("model", ""),
+                address=d.get("address", ""),
+                needs=list(d.get("needs", [])),
+                details=dict(d.get("details", {})),
+            )
+            for d in data["devices"]
+        ]
+        return cls(devices, dict(data.get("errors", {})))
 
 
 def merge(devices: list[SmartDevice]) -> list[SmartDevice]:
