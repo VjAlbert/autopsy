@@ -150,6 +150,9 @@ def run_scaffold(
     arch: str | None = None,
     context: str = "",
     source: str | None = None,
+    progress=None,
+    on_update=None,
+    should_stop=None,
 ):
     """Genera e scrive lo scheletro di codice. Usato da CLI e GUI."""
     from drdeconstruct.software.scaffold import ScaffoldGenerator, write_scaffold
@@ -164,11 +167,16 @@ def run_scaffold(
         arch=arch,
         context=context,
         source=source,
-        progress=lambda i, n, name: print(f"[{i}/{n}] scheletro {name}", file=sys.stderr),
+        progress=progress
+        or (lambda i, n, name: print(f"[{i}/{n}] scheletro {name}", file=sys.stderr)),
+        on_update=on_update,
+        should_stop=should_stop,
     )
     if not module.functions:
         errors = "; ".join(f"{k}: {v}" for k, v in module.failed.items())
-        raise DrDeconstructError(f"Nessuna funzione elaborata: {errors}")
+        raise DrDeconstructError(
+            f"Nessuna funzione elaborata: {errors}" if errors else "Interrotto prima di iniziare."
+        )
     paths = write_scaffold(module, out_dir)
     return module, paths
 

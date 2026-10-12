@@ -37,8 +37,14 @@ DrDeconstruct ne genera un sorgente da completare in C (default), Python o Rust
 (`--lang`). I nomi sono coerenti tra le funzioni (le chiamate a `FUN_00401a20`
 diventano chiamate a `crc32_update`), ogni corpo contiene il flusso come
 commenti e un TODO, e `NOTE.md` riassume nomi originali, indirizzi, confidenza
-e domande aperte. Nella GUI c'è il pulsante "Scheletro di codice…" nella scheda
-di analisi e "Genera scheletro…" in quella di decompilazione.
+e domande aperte.
+
+Nella GUI tutto si fa dalla scheda **Scheletro di codice**, senza riga di
+comando: quattro passaggi guidati (cosa trasformare, linguaggio, cartella,
+motore) e un'anteprima dal vivo che mostra il codice formarsi funzione per
+funzione, con l'elenco delle funzioni (fatte, in corso, non riuscite) e una
+barra di avanzamento. «Ferma» interrompe dopo la funzione in corso e salva ciò
+che è già pronto.
 
 Lo scheletro è un punto di partenza, non una copia: il modello descrive i passi
 a parole e i corpi restano da scrivere. Serve a capire e reinterpretare

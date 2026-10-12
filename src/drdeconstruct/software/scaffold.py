@@ -81,40 +81,59 @@ class ScaffoldGenerator:
         context: str = "",
         source: str | None = None,
         progress: Callable[[int, int, str], None] | None = None,
+        on_update: Callable[[ScaffoldModule], None] | None = None,
+        should_stop: Callable[[], bool] | None = None,
     ) -> ScaffoldModule:
         """Un piano per funzione; un errore su una funzione non ferma le altre.
 
         I nomi proposti vengono resi identificatori validi e unici, e ogni
         riferimento ai nomi originali viene sostituito con quello nuovo.
+        `on_update` riceve il modulo parziale dopo ogni funzione (anteprima dal
+        vivo); se `should_stop` diventa vero il lavoro si ferma e restituisce
+        ciò che è già pronto.
         """
         language = Language(language)
         skeletons: list[FunctionSkeleton] = []
         failed: dict[str, str] = {}
         renames: dict[str, str] = {}
         used: set[str] = set()
+        stopped_at: int | None = None
+
+        def snapshot() -> ScaffoldModule:
+            done = [apply_renames(sk, renames) for sk in skeletons]
+            notes = _merge_notes(done)
+            if stopped_at is not None:
+                notes.append(
+                    f"Interrotto dall'utente: elaborate {stopped_at} funzioni su {len(functions)}."
+                )
+            return ScaffoldModule(
+                name=module_name(source),
+                language=language.value,
+                source=source,
+                arch=arch,
+                functions=done,
+                failed=dict(failed),
+                notes=notes,
+            )
+
         for i, func in enumerate(functions, 1):
+            if should_stop and should_stop():
+                stopped_at = i - 1
+                break
             if progress:
                 progress(i, len(functions), func.name)
             try:
                 sk = self.skeleton(func, language, arch, context, renames)
             except BackendError as exc:
                 failed[func.name] = str(exc)
-                continue
-            name = unique(identifier(sk.name, language), used)
-            renames[func.name] = name
-            fixed = {"original_name": func.name, "entry": func.entry, "name": name}
-            skeletons.append(sk.model_copy(update=fixed))
-
-        skeletons = [apply_renames(sk, renames) for sk in skeletons]
-        return ScaffoldModule(
-            name=module_name(source),
-            language=language.value,
-            source=source,
-            arch=arch,
-            functions=skeletons,
-            failed=failed,
-            notes=_merge_notes(skeletons),
-        )
+            else:
+                name = unique(identifier(sk.name, language), used)
+                renames[func.name] = name
+                fixed = {"original_name": func.name, "entry": func.entry, "name": name}
+                skeletons.append(sk.model_copy(update=fixed))
+            if on_update:
+                on_update(snapshot())
+        return snapshot()
 
 
 def apply_renames(sk: FunctionSkeleton, renames: dict[str, str]) -> FunctionSkeleton:
@@ -517,6 +536,12 @@ def render_notes(module: ScaffoldModule) -> str:
 
 
 _RENDERERS = {Language.C: render_c, Language.PYTHON: render_python, Language.RUST: render_rust}
+
+
+def preview(module: ScaffoldModule) -> str:
+    """I sorgenti generati in un unico testo, per l'anteprima nella GUI."""
+    files = _RENDERERS[Language(module.language)](module)
+    return "\n".join(f"// ===== {name} =====\n{text}" for name, text in files.items())
 
 
 def build_scaffold(module: ScaffoldModule) -> dict[str, str]:
