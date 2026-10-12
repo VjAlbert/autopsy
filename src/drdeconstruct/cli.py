@@ -62,6 +62,17 @@ def _add_engine_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("-o", "--output", type=Path, help="Salva il risultato qui")
 
 
+def _add_scaffold_lang(p: argparse.ArgumentParser) -> None:
+    from drdeconstruct.software.scaffold import DEFAULT_LANGUAGE, LANGUAGES
+
+    p.add_argument(
+        "--lang",
+        choices=LANGUAGES,
+        default=DEFAULT_LANGUAGE.value,
+        help="Linguaggio dello scheletro (default: c)",
+    )
+
+
 def _parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="drdec", description="Reverse engineering assistito da AI.")
     sub = p.add_subparsers(dest="command", required=True)
@@ -73,6 +84,22 @@ def _parser() -> argparse.ArgumentParser:
     a.add_argument("--arch", help="Architettura, es. mips32el, armv7, x86")
     a.add_argument("--split", action="store_true", help="Analizza ogni funzione C separatamente")
     _add_engine_args(a)
+
+    s = sub.add_parser(
+        "scaffold",
+        help="Genera uno scheletro di codice riscritto da pseudocodice o assembly.",
+        description=(
+            "Ricostruisce firme, tipi, costanti e flusso delle funzioni e scrive un sorgente "
+            "da completare, con TODO nei corpi. È un punto di partenza per reinterpretare "
+            "software tuo o open source, non una copia del programma originale."
+        ),
+    )
+    s.add_argument("file", type=Path)
+    s.add_argument("--out", type=Path, required=True, metavar="CARTELLA", help="Dove scrivere")
+    s.add_argument("--kind", choices=[ArtifactKind.PSEUDOCODE_C.value, ArtifactKind.ASSEMBLY.value])
+    s.add_argument("--arch", help="Architettura, es. mips32el, armv7, x86")
+    _add_scaffold_lang(s)
+    _add_engine_args(s)
 
     d = sub.add_parser(
         "decompile", help="Decompila un binario con Ghidra e, a richiesta, analizza le funzioni."
@@ -91,6 +118,10 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Manda ogni funzione al modello (altrimenti solo export C)",
     )
+    d.add_argument(
+        "--scaffold", type=Path, metavar="CARTELLA", help="Genera qui lo scheletro di codice"
+    )
+    _add_scaffold_lang(d)
     _add_engine_args(d)
 
     w = sub.add_parser(
@@ -184,6 +215,61 @@ def _cmd_analyze(args: argparse.Namespace) -> str:
     return json.dumps(results, indent=2, ensure_ascii=False)
 
 
+def run_scaffold(
+    settings: Settings,
+    functions: list,
+    out_dir: Path,
+    language: str = "c",
+    arch: str | None = None,
+    context: str = "",
+    source: str | None = None,
+    progress=None,
+    on_update=None,
+    should_stop=None,
+):
+    """Genera e scrive lo scheletro di codice. Usato da CLI e GUI."""
+    from drdeconstruct.software.scaffold import ScaffoldGenerator, write_scaffold
+
+    out_dir = Path(out_dir)
+    # Controllo prima di chiamare il modello, per non sprecare l'analisi.
+    if out_dir.exists() and any(out_dir.iterdir()):
+        raise DrDeconstructError(f"{out_dir} non è vuota: scegli una cartella vuota o nuova.")
+    module = ScaffoldGenerator(make_backend(settings)).generate(
+        functions,
+        language,
+        arch=arch,
+        context=context,
+        source=source,
+        progress=progress
+        or (lambda i, n, name: print(f"[{i}/{n}] scheletro {name}", file=sys.stderr)),
+        on_update=on_update,
+        should_stop=should_stop,
+    )
+    if not module.functions:
+        errors = "; ".join(f"{k}: {v}" for k, v in module.failed.items())
+        raise DrDeconstructError(
+            f"Nessuna funzione elaborata: {errors}" if errors else "Interrotto prima di iniziare."
+        )
+    paths = write_scaffold(module, out_dir)
+    return module, paths
+
+
+def _cmd_scaffold(args: argparse.Namespace) -> str:
+    from drdeconstruct.software.scaffold import SourceFunction
+
+    content = args.file.read_text(encoding="utf-8", errors="replace")
+    chunks = [] if args.kind == ArtifactKind.ASSEMBLY.value else split_c_functions(content)
+    functions = [SourceFunction(c.name, c.code) for c in chunks] or [
+        SourceFunction(args.file.stem, content)
+    ]
+    module, paths = run_scaffold(
+        _settings(args), functions, args.out, args.lang, args.arch, args.context, args.file.name
+    )
+    for path in paths:
+        print(f"[*] Scheletro: {path}", file=sys.stderr)
+    return module.model_dump_json(indent=2)
+
+
 def _cmd_decompile(args: argparse.Namespace) -> str:
     print(f"[*] Ghidra sta analizzando {args.binary.name}…", file=sys.stderr)
     program = GhidraExporter(install_dir=args.ghidra).export(
@@ -195,6 +281,21 @@ def _cmd_decompile(args: argparse.Namespace) -> str:
         name_filter=args.filter,
     )
     print(f"[*] {len(program.functions)} funzioni ({program.language})", file=sys.stderr)
+    if args.scaffold:
+        from drdeconstruct.software.scaffold import SourceFunction
+
+        functions = [SourceFunction(f.name, f.code, f.entry) for f in program.functions]
+        _, paths = run_scaffold(
+            _settings(args),
+            functions,
+            args.scaffold,
+            args.lang,
+            program.arch,
+            args.context,
+            program.program,
+        )
+        for path in paths:
+            print(f"[*] Scheletro: {path}", file=sys.stderr)
     if not args.analyze:
         return program.as_c_source()
 
@@ -316,6 +417,7 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     commands = {
         "analyze": _cmd_analyze,
+        "scaffold": _cmd_scaffold,
         "decompile": _cmd_decompile,
         "web": _cmd_web,
         "home": _cmd_home,

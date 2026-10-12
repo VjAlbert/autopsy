@@ -28,5 +28,11 @@ QCheckBox::indicator {
 QCheckBox::indicator:checked { background: #2e7d6b; border-color: #2e7d6b; }
 QLabel#heading { font-size: 16px; font-weight: 700; }
 QLabel#hint { color: #8b909b; }
+QLabel#step { font-weight: 700; color: #6fd1b9; margin-top: 6px; }
+QPlainTextEdit#code { font-family: "Cascadia Mono", "Consolas", "DejaVu Sans Mono", monospace; }
+QProgressBar {
+    background: #0f1115; border: 1px solid #2a2d36; border-radius: 8px; text-align: center;
+}
+QProgressBar::chunk { background: #2e7d6b; border-radius: 8px; }
 QStatusBar { background: #0f1115; color: #8b909b; }
 """

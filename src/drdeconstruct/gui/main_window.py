@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
 from drdeconstruct.config import BACKENDS, Settings
 from drdeconstruct.core.errors import BackendError
 from drdeconstruct.core.types import AnalysisRequest, ArtifactKind
+from drdeconstruct.gui.scaffold_tab import ScaffoldTab
 from drdeconstruct.gui.smarthome_tab import SmartHomeTab
 from drdeconstruct.gui.theme import DARK_QSS
 from drdeconstruct.gui.workers import Task
@@ -65,6 +66,8 @@ class MainWindow(QMainWindow):
         self.tabs = QTabWidget()
         self.tabs.addTab(self._build_analysis_tab(), "Software / Hardware")
         self.tabs.addTab(self._build_decompile_tab(), "Decompila binario")
+        self.scaffold_tab = ScaffoldTab(self.settings, self.statusBar())
+        self.tabs.addTab(self.scaffold_tab, "Scheletro di codice")
         self.tabs.addTab(self._build_web_tab(), "Sito web")
         self.tabs.addTab(self._build_devices_tab(), "Dispositivi")
         self.smarthome_tab = SmartHomeTab(self._start, self._current_settings)
@@ -474,8 +477,8 @@ class MainWindow(QMainWindow):
             return
         self.run_btn.setEnabled(False) if hasattr(self, "run_btn") else None
         self.statusBar().showMessage(busy)
-        self._task = Task(fn, self, with_progress=with_progress)
-        self._task.progress.connect(self.statusBar().showMessage)
+        self._task = Task(fn, self, with_report=with_progress)
+        self._task.progress.connect(lambda msg: self.statusBar().showMessage(str(msg)))
         self._task.done.connect(lambda r: self._finish(on_done, r))
         self._task.failed.connect(self._fail)
         self._task.start()

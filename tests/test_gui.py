@@ -22,7 +22,7 @@ def test_main_window_builds(app):
 
     win = MainWindow(Settings(backend="ollama"))
     assert win.windowTitle() == "DrDeconstruct"
-    assert win.tabs.count() == 5
+    assert win.tabs.count() == 6
     assert win.backend_box.currentData() == "ollama"
     assert win.binary_edit.text() == ""
     assert not win.scaffold_btn.isEnabled()
