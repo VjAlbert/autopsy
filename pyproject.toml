@@ -10,7 +10,8 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 keywords = [
-    "reverse-engineering", "firmware", "ghidra", "disassembly", "frontend", "claude", "ai",
+    "reverse-engineering", "firmware", "ghidra", "disassembly", "frontend", "smart-home",
+    "claude", "ai",
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -26,13 +27,15 @@ dependencies = ["pydantic>=2.6"]
 [project.optional-dependencies]
 # Acquisizione hardware: seriale/UART, USB, Bluetooth LE
 hardware = ["pyserial>=3.5", "pyusb>=1.2", "bleak>=0.22"]
+# Smart home: Xiaomi (miIO, MiBeacon), Aqara, Tapo (KLAP), scoperta mDNS
+smarthome = ["bleak>=0.22", "zeroconf>=0.132", "cryptography>=42"]
 # Interfaccia grafica desktop
 gui = ["PySide6-Essentials>=6.6"]
 # Motore opzionale via chiave API (spento di default)
 api = ["anthropic>=0.70"]
 dev = ["pytest>=8", "ruff>=0.6"]
 # Tutto insieme, per l'eseguibile Windows
-full = ["drdeconstruct[hardware,gui,api]"]
+full = ["drdeconstruct[hardware,smarthome,gui,api]"]
 
 [project.urls]
 Homepage = "https://github.com/VjAlbert/autopsy"

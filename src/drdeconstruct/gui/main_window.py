@@ -1,4 +1,5 @@
-"""Finestra principale di DrDeconstruct: schede Software, Hardware, Sito web, Dispositivi."""
+"""Finestra principale: schede Software/Hardware, Decompila, Sito web, Dispositivi,
+Casa smart."""
 
 from __future__ import annotations
 
@@ -28,6 +29,7 @@ from PySide6.QtWidgets import (
 from drdeconstruct.config import BACKENDS, Settings
 from drdeconstruct.core.errors import BackendError
 from drdeconstruct.core.types import AnalysisRequest, ArtifactKind
+from drdeconstruct.gui.smarthome_tab import SmartHomeTab
 from drdeconstruct.gui.theme import DARK_QSS
 from drdeconstruct.gui.workers import Task
 
@@ -65,6 +67,8 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self._build_decompile_tab(), "Decompila binario")
         self.tabs.addTab(self._build_web_tab(), "Sito web")
         self.tabs.addTab(self._build_devices_tab(), "Dispositivi")
+        self.smarthome_tab = SmartHomeTab(self._start, self._current_settings)
+        self.tabs.addTab(self.smarthome_tab, "Casa smart")
 
         central = QWidget()
         outer = QVBoxLayout(central)
@@ -458,6 +462,11 @@ class MainWindow(QMainWindow):
     # --- Infrastruttura ---------------------------------------------------
     def _backend(self) -> str:
         return self.backend_box.currentData() or self.settings.backend
+
+    def _current_settings(self) -> Settings:
+        from dataclasses import replace
+
+        return replace(self.settings, backend=self._backend())
 
     def _start(self, fn, on_done, busy: str, with_progress: bool = False) -> None:
         if self._task and self._task.isRunning():
