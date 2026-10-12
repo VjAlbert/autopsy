@@ -1,0 +1,61 @@
+{
+  "name": "crc32",
+  "arch": "x86",
+  "code": [
+    "uint FUN_00401a20(byte *param_1,int param_2)",
+    "{",
+    "  uint uVar1;",
+    "  int iVar2;",
+    "  ",
+    "  uVar1 = 0xffffffff;",
+    "  for (iVar2 = 0; iVar2 < param_2; iVar2 = iVar2 + 1) {",
+    "    uVar1 = *(uint *)(&DAT_00405000 + ((uVar1 ^ param_1[iVar2]) & 0xff) * 4) ^ uVar1 >> 8;",
+    "  }",
+    "  return ~uVar1;",
+    "}"
+  ],
+  "expected": {
+    "FUN_00401a20": [
+      "crc",
+      "crc32"
+    ],
+    "DAT_00405000": [
+      "crc",
+      "table",
+      "tab",
+      "lut"
+    ],
+    "param_1": [
+      "buf",
+      "data",
+      "ptr",
+      "input",
+      "bytes",
+      "src",
+      "msg",
+      "p"
+    ],
+    "param_2": [
+      "len",
+      "size",
+      "count",
+      "length",
+      "n",
+      "num"
+    ],
+    "uVar1": [
+      "crc",
+      "acc",
+      "hash"
+    ],
+    "iVar2": [
+      "i",
+      "idx",
+      "index",
+      "pos",
+      "offset",
+      "j",
+      "k"
+    ]
+  }
+}

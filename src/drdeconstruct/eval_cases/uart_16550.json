@@ -1,0 +1,103 @@
+{
+  "name": "uart_16550",
+  "arch": "mips32el",
+  "context": "Firmware di un SoC con UART compatibile 16550 a 0xb8000c00, registri a passo 4 byte.",
+  "code": [
+    "void FUN_80001000(uint param_1)",
+    "{",
+    "  uint uVar1;",
+    "  ",
+    "  uVar1 = DAT_80010000 / (param_1 << 4);",
+    "  _DAT_b8000c0c = 0x83;",
+    "  _DAT_b8000c00 = uVar1 & 0xff;",
+    "  _DAT_b8000c04 = uVar1 >> 8 & 0xff;",
+    "  _DAT_b8000c0c = 3;",
+    "  return;",
+    "}",
+    "",
+    "void FUN_80001080(char param_1)",
+    "{",
+    "  do {",
+    "  } while ((_DAT_b8000c14 & 0x20) == 0);",
+    "  _DAT_b8000c00 = param_1;",
+    "  return;",
+    "}",
+    "",
+    "void FUN_800010c0(char *param_1)",
+    "{",
+    "  for (; *param_1 != '\\0'; param_1 = param_1 + 1) {",
+    "    if (*param_1 == '\\n') {",
+    "      FUN_80001080(0xd);",
+    "    }",
+    "    FUN_80001080(*param_1);",
+    "  }",
+    "  return;",
+    "}"
+  ],
+  "expected": {
+    "FUN_80001000": [
+      "init",
+      "setup",
+      "baud",
+      "config",
+      "configure",
+      "open"
+    ],
+    "FUN_80001080": [
+      "putc",
+      "putchar",
+      "char",
+      "tx",
+      "send",
+      "write",
+      "out"
+    ],
+    "FUN_800010c0": [
+      "puts",
+      "print",
+      "str",
+      "string",
+      "msg",
+      "text"
+    ],
+    "DAT_80010000": [
+      "clock",
+      "clk",
+      "freq",
+      "hz"
+    ],
+    "_DAT_b8000c0c": [
+      "lcr",
+      "line",
+      "lctrl"
+    ],
+    "_DAT_b8000c14": [
+      "lsr",
+      "status",
+      "line"
+    ],
+    "_DAT_b8000c00": [
+      "thr",
+      "tx",
+      "data",
+      "dll",
+      "rbr",
+      "holding",
+      "transmit",
+      "fifo"
+    ],
+    "FUN_80001000/param_1": [
+      "baud",
+      "rate",
+      "bps"
+    ],
+    "FUN_800010c0/param_1": [
+      "str",
+      "s",
+      "string",
+      "text",
+      "msg",
+      "p"
+    ]
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "name": "read_be32",
+  "arch": "armv7",
+  "code": [
+    "uint FUN_00402200(byte *param_1)",
+    "{",
+    "  return (uint)*param_1 << 0x18 | (uint)param_1[1] << 0x10 | (uint)param_1[2] << 8 |",
+    "         (uint)param_1[3];",
+    "}"
+  ],
+  "expected": {
+    "FUN_00402200": [
+      "be",
+      "be32",
+      "big",
+      "bswap",
+      "swap",
+      "ntohl",
+      "endian"
+    ],
+    "param_1": [
+      "buf",
+      "data",
+      "ptr",
+      "bytes",
+      "src",
+      "p",
+      "in",
+      "input"
+    ]
+  }
+}
