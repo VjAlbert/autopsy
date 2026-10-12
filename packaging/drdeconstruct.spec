@@ -2,13 +2,14 @@
 # Usage: pyinstaller packaging/drdeconstruct.spec
 import os
 
-from PyInstaller.utils.hooks import collect_submodules
+from PyInstaller.utils.hooks import collect_dynamic_libs, collect_submodules
 
 PKG = os.path.join(SPECPATH, "..", "src", "drdeconstruct")
 
 hiddenimports = (
     collect_submodules("serial")
     + collect_submodules("usb")
+    + ["libusb_package"]
     + collect_submodules("bleak")
     + collect_submodules("zeroconf")
     + collect_submodules("cryptography")
@@ -17,7 +18,8 @@ hiddenimports = (
 a = Analysis(
     ["entry_gui.py"],
     pathex=["src"],
-    binaries=[],
+    # libusb-1.0.dll: without it pyusb fails with "No backend available".
+    binaries=collect_dynamic_libs("libusb_package"),
     # Non-Python files the package reads at runtime next to its modules.
     datas=[
         (os.path.join(PKG, "preprocess", "ghidra_scripts"), "drdeconstruct/preprocess/ghidra_scripts"),

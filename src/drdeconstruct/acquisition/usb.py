@@ -12,8 +12,38 @@ from collections.abc import Callable
 from drdeconstruct.acquisition.models import DeviceInfo, LinkKind
 from drdeconstruct.core.errors import DrDeconstructError
 
+NO_USB_BACKEND_MESSAGE = (
+    "La scansione USB non è disponibile: manca la libreria libusb sul computer. "
+    "Non è un problema per leggere le schede: premi «Porte seriali», che funziona "
+    "senza libusb ed è la via usata dagli adattatori USB-UART (CH340, CP2102, FTDI). "
+    "Se ti serve proprio la scansione USB, scarica l'ultima versione di DrDeconstruct, "
+    "che include libusb."
+)
 
-def list_usb_devices() -> list[DeviceInfo]:
+
+def _load_usb_backend():
+    """Trova un backend libusb per pyusb, o None se non c'è.
+
+    Prima prova la libusb inclusa nel pacchetto `libusb-package` (la DLL viaggia
+    con l'app su Windows), poi quella installata nel sistema.
+    """
+    try:
+        import libusb_package
+
+        backend = libusb_package.get_libusb1_backend()
+        if backend is not None:
+            return backend
+    except (ImportError, OSError):
+        pass
+    try:
+        import usb.backend.libusb1
+
+        return usb.backend.libusb1.get_backend()
+    except (ImportError, OSError):
+        return None
+
+
+def list_usb_devices(backend_loader: Callable = _load_usb_backend) -> list[DeviceInfo]:
     """Elenca i dispositivi USB tramite pyusb."""
     try:
         import usb.core
@@ -23,12 +53,21 @@ def list_usb_devices() -> list[DeviceInfo]:
             "Installa l'extra hardware: pip install 'drdeconstruct[hardware]'"
         ) from exc
 
+    backend = backend_loader()
+    if backend is None:
+        raise DrDeconstructError(NO_USB_BACKEND_MESSAGE)
+    try:
+        found = list(usb.core.find(find_all=True, backend=backend))
+    except usb.core.NoBackendError as exc:
+        raise DrDeconstructError(NO_USB_BACKEND_MESSAGE) from exc
+
     devices = []
-    for dev in usb.core.find(find_all=True):
+    for dev in found:
         try:
             product = usb.util.get_string(dev, dev.iProduct) or "?"
-        except (ValueError, usb.core.USBError):
-            product = "?"
+        except (ValueError, NotImplementedError, usb.core.USBError):
+            # Su Windows il nome si legge solo se il dispositivo usa il driver WinUSB.
+            product = "nome non leggibile"
         devices.append(
             DeviceInfo(
                 kind=LinkKind.USB,

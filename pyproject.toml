@@ -26,8 +26,8 @@ classifiers = [
 dependencies = ["pydantic>=2.6"]
 
 [project.optional-dependencies]
-# Hardware acquisition: serial/UART, USB, Bluetooth LE
-hardware = ["pyserial>=3.5", "pyusb>=1.2", "bleak>=0.22"]
+# Hardware acquisition: serial/UART, USB (libusb-package ships the libusb DLL), Bluetooth LE
+hardware = ["pyserial>=3.5", "pyusb>=1.2", "libusb-package>=1.0.26", "bleak>=0.22"]
 # Smart home: Xiaomi (miIO, MiBeacon), Aqara, Tapo (KLAP), mDNS discovery
 smarthome = ["bleak>=0.22", "zeroconf>=0.132", "cryptography>=42"]
 # Desktop GUI

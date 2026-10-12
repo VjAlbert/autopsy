@@ -146,6 +146,14 @@ code it often compiles on the first try; on real projects expect manual work whe
 (shared mutable state, inheritance, exceptions, reflection, dynamic typing). The tool speeds the port up; it does not
 replace tests that run the original and the ported version on the same inputs. `CHECKLIST.md` lists the riskiest points first.
 
+### USB and serial devices on Windows
+
+**Serial ports** is the button to use for reading a board: it lists USB-UART adapters (CH340, CP2102, FTDI) as COM ports
+and needs nothing beyond their usual driver. **Scan USB** lists every USB device through libusb, which ships inside the app
+since v0.1.1 (v0.1.0 lacked it and showed "No backend available"). Windows lists devices without extra drivers, but reading
+a device's name, or talking to it at low level, works only when it uses the WinUSB driver (set with Zadig). Do not switch a
+USB-UART adapter to WinUSB: it would stop appearing as a COM port.
+
 ### Smart-home channels and honest limits
 
 | Channel | What it sees | What you need to read state |
